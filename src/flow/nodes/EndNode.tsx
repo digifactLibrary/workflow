@@ -7,13 +7,14 @@ export default function EndNode(props: any) {
   return (
     <BaseNode
       {...props}
-      className="rounded-full border-2 border-rose-300/70 bg-rose-50"
-      data={{ ...data, label: data?.label ?? 'Kết thúc' }}
+      className="rounded-full border-2 border-rose-400/70 bg-rose-50"
+      data={{ ...data, label: data?.label ?? 'End' }}
     >
       <div className="flex items-center gap-2 text-rose-700">
         <Square className="h-4 w-4" />
-        <NodeLabel id={id} value={data?.label ?? 'Kết thúc'} className="font-semibold" />
+        <NodeLabel id={id} value={data?.label ?? 'End'} className="font-semibold" />
       </div>
     </BaseNode>
   )
 }
+

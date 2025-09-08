@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -8,7 +7,6 @@ import {
   type OnEdgesChange,
   type OnConnect,
   MarkerType,
-  type Node,
   type Edge,
 } from '@xyflow/react'
 import type { AlgoNode, AlgoEdge, AlgoNodeType, AlgoNodeData } from '../flow/types'
@@ -40,8 +38,7 @@ type FlowState = Diagram & {
 const initial: Diagram = { nodes: [], edges: [] }
 
 export const useFlowStore = create<FlowState>()(
-  persist(
-    (set) => ({
+  (set) => ({
       ...initial,
       rfInstanceReady: false,
       autosave: true,
@@ -139,19 +136,27 @@ export const useFlowStore = create<FlowState>()(
 
       addNodeFromType: (t, pos) => set((s) => {
         const id = `${t}-${Math.round(Math.random() * 1e6)}`
-        const defaults: Record<AlgoNodeType, Partial<Node>> = {
+        const defaults: any = {
           start: { data: { label: 'Bắt đầu' }, width: 140, height: 48 },
           end: { data: { label: 'Kết thúc' }, width: 140, height: 48 },
           process: { data: { label: 'Xử lý' }, width: 180, height: 56 },
           decision: { data: { label: 'Kiểm tra' }, width: 180, height: 120 },
-          split: { data: { label: 'Split' }, width: 120, height: 48 },
-          join: { data: { label: 'Join' }, width: 120, height: 48 },
+          split: { data: { label: 'and' }, width: 120, height: 48 },
+          join: { data: { label: 'or' }, width: 120, height: 48 },
         }
         const node: AlgoNode = {
           id,
           type: t,
           position: pos,
-          ...defaults[t],
+          ...(((defaults as any)[t]) ?? (
+            t === 'trigger' ? { data: { label: 'Trigger' }, width: 180, height: 56 } :
+            t === 'send' ? { data: { label: 'Send Message' }, width: 200, height: 56 } :
+            t === 'condition' ? { data: { label: 'Condition' }, width: 180, height: 120 } :
+            t === 'and' ? { data: { label: 'AND' }, width: 120, height: 48 } :
+            t === 'or' ? { data: { label: 'OR' }, width: 120, height: 48 } :
+            t === 'comment' ? { data: { label: 'Comment' } } :
+            { data: { label: String(t).toUpperCase() } }
+          )),
         } as AlgoNode
         const prev = { nodes: s.nodes, edges: s.edges }
         s.history.past.push(prev)
@@ -192,17 +197,17 @@ export const useFlowStore = create<FlowState>()(
 
         if (name === 'linear') {
           const s0 = add('start', 0, 0, { label: 'Bắt đầu' })
-          const p1 = add('process', 200, 0, { label: 'Xử lý' })
+          const p1 = add('send', 200, 0, { label: 'Xử lý' })
           const e1 = add('end', 400, 0, { label: 'Kết thúc' })
           link(s0, p1)
           link(p1, e1)
         }
         if (name === 'ifElse') {
           const s0 = add('start', 0, 0, { label: 'Bắt đầu' })
-          const p1 = add('process', 200, 0, { label: 'Nhập dữ liệu' })
+          const p1 = add('trigger', 200, 0, { label: 'Nhập dữ liệu' })
           const d2 = add('decision', 420, -40, { label: 'Điều kiện?' }, { h: 100 })
-          const pY = add('process', 640, -120, { label: 'Nhánh Có' })
-          const pN = add('process', 640, 40, { label: 'Nhánh Không' })
+          const pY = add('send', 640, -120, { label: 'Nhánh Có' })
+          const pN = add('send', 640, 40, { label: 'Nhánh Không' })
           const e3 = add('end', 860, -40, { label: 'Kết thúc' })
           link(s0, p1)
           link(p1, d2)
@@ -213,10 +218,10 @@ export const useFlowStore = create<FlowState>()(
         }
         if (name === 'parallel') {
           const s0 = add('start', 0, 0, { label: 'Bắt đầu' })
-          const sp = add('split', 220, 0, { label: 'Split' })
-          const pa = add('process', 440, -80, { label: 'Nhánh A' })
-          const pb = add('process', 440, 80, { label: 'Nhánh B' })
-          const jn = add('join', 660, 0, { label: 'Join' })
+          const sp = add('and', 220, 0, { label: 'and' })
+          const pa = add('send', 440, -80, { label: 'Nhánh A' })
+          const pb = add('send', 440, 80, { label: 'Nhánh B' })
+          const jn = add('or', 660, 0, { label: 'or' })
           const e3 = add('end', 880, 0, { label: 'Kết thúc' })
           link(s0, sp)
           link(sp, pa)
@@ -254,10 +259,6 @@ export const useFlowStore = create<FlowState>()(
       setSelection: (sel) => set({ selection: sel }),
 
       setAutosave: (v) => set({ autosave: v }),
-    }),
-    {
-      name: 'xyflow-dx-diagram',
-      partialize: (s) => ({ nodes: s.nodes, edges: s.edges, autosave: s.autosave }),
-    }
-  )
+    })
 )
+

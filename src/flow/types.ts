@@ -1,7 +1,16 @@
 import type { Node, Edge } from '@xyflow/react'
 import { Position } from '@xyflow/react'
 
-export type AlgoNodeType = 'start' | 'end' | 'process' | 'decision' | 'split' | 'join'
+export type AlgoNodeType =
+  | 'start'
+  | 'end'
+  | 'decision'      // constrained: max 2 outputs with Yes/No
+  | 'condition'     // free condition, unlimited outputs
+  | 'trigger'
+  | 'send'
+  | 'and'
+  | 'or'
+  | 'comment'
 
 export type AlgoNodeData = {
   label: string

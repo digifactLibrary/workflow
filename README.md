@@ -5,12 +5,14 @@ What’s inside
 - React + Vite + TypeScript
 - TailwindCSS + shadcn‑style UI primitives (Button, Tooltip, Switch)
 - XYFlow (@xyflow/react) with custom nodes + animated directional edges
-- DnD palette, node toolbar, resizer, hotkeys, autosave (localStorage), undo/redo, export/import
+- DnD palette, node toolbar, resizer, hotkeys, autosave (Postgres via API), undo/redo, export/import
 - Dashboard quản lý nhiều sơ đồ (tạo/mở/đổi tên/nhân đôi/xoá)
 
 Getting started
 
 - Install deps: `npm install`
+- Configure Postgres env (create a `.env` based on `.env.example`)
+- Start API: `npm run server` (or `npm run dev:full` to run API+Vite)
 - Start dev server: `npm run dev`
 
 Hotkeys

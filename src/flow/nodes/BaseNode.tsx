@@ -10,9 +10,10 @@ type BaseProps = {
   selected?: boolean
   className?: string
   children?: React.ReactNode
+  hideHandles?: boolean
 }
 
-export const BaseNode = memo(({ id, data, selected, className, children }: BaseProps) => {
+export const BaseNode = memo(({ id, data, selected, className, children, hideHandles }: BaseProps) => {
   const { deleteElements, addNodes, getNode } = useReactFlow()
   return (
     <div className={cn('relative rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
@@ -34,17 +35,21 @@ export const BaseNode = memo(({ id, data, selected, className, children }: BaseP
         </Button>
       </NodeToolbar>
       <NodeResizer isVisible={selected} minWidth={120} minHeight={48} color="#94a3b8" />
-      {/* Source handles (start here) */}
-      <Handle id="s-top" type="source" position={Position.Top} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-teal rounded-full border-2 border-white" />
-      <Handle id="s-right" type="source" position={Position.Right} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-purple rounded-full border-2 border-white" />
-      <Handle id="s-bottom" type="source" position={Position.Bottom} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-amber rounded-full border-2 border-white" />
-      <Handle id="s-left" type="source" position={Position.Left} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-rose rounded-full border-2 border-white" />
+      {!hideHandles && (
+        <>
+          {/* Source handles (start here) */}
+          <Handle id="s-top" type="source" position={Position.Top} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-teal rounded-full border-2 border-white" />
+          <Handle id="s-right" type="source" position={Position.Right} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-purple rounded-full border-2 border-white" />
+          <Handle id="s-bottom" type="source" position={Position.Bottom} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-amber rounded-full border-2 border-white" />
+          <Handle id="s-left" type="source" position={Position.Left} isConnectableStart isConnectableEnd={false} className="w-3 h-3 bg-brand-rose rounded-full border-2 border-white" />
 
-      {/* Target handles (end here) */}
-      <Handle id="t-top" type="target" position={Position.Top} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-teal rounded-full border-2 border-white" />
-      <Handle id="t-right" type="target" position={Position.Right} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-purple rounded-full border-2 border-white" />
-      <Handle id="t-bottom" type="target" position={Position.Bottom} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-amber rounded-full border-2 border-white" />
-      <Handle id="t-left" type="target" position={Position.Left} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-rose rounded-full border-2 border-white" />
+          {/* Target handles (end here) */}
+          <Handle id="t-top" type="target" position={Position.Top} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-teal rounded-full border-2 border-white" />
+          <Handle id="t-right" type="target" position={Position.Right} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-purple rounded-full border-2 border-white" />
+          <Handle id="t-bottom" type="target" position={Position.Bottom} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-amber rounded-full border-2 border-white" />
+          <Handle id="t-left" type="target" position={Position.Left} isConnectableStart={false} isConnectableEnd className="w-3 h-3 bg-brand-rose rounded-full border-2 border-white" />
+        </>
+      )}
 
       <div className={cn('px-4 py-2 select-none', data.color)}>{children ?? data.label}</div>
     </div>

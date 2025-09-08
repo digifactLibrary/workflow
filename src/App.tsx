@@ -14,10 +14,13 @@ import './index.css'
 
 import StartNode from './flow/nodes/StartNode'
 import EndNode from './flow/nodes/EndNode'
-import ProcessNode from './flow/nodes/ProcessNode'
 import DecisionNode from './flow/nodes/DecisionNode'
-import SplitNode from './flow/nodes/SplitNode'
-import JoinNode from './flow/nodes/JoinNode'
+import ConditionNode from './flow/nodes/ConditionNode'
+import TriggerNode from './flow/nodes/TriggerNode'
+import SendMessageNode from './flow/nodes/SendMessageNode'
+import AndNode from './flow/nodes/AndNode'
+import OrNode from './flow/nodes/OrNode'
+import CommentNode from './flow/nodes/CommentNode'
 import DirectionEdge from './flow/edges/DirectionEdge'
 import { Palette } from './flow/palette'
 import { Topbar } from './components/Topbar'
@@ -28,10 +31,13 @@ import { Dashboard } from './components/Dashboard'
 const nodeTypes: NodeTypes = {
   start: StartNode,
   end: EndNode,
-  process: ProcessNode,
   decision: DecisionNode,
-  split: SplitNode,
-  join: JoinNode,
+  condition: ConditionNode,
+  trigger: TriggerNode,
+  send: SendMessageNode,
+  and: AndNode,
+  or: OrNode,
+  comment: CommentNode,
 }
 
 const edgeTypes: EdgeTypes = { dir: DirectionEdge }
@@ -40,6 +46,8 @@ export default function App() {
   const showDashboard = useWorkspaceStore((s) => s.ui.showDashboard)
   const activeId = useWorkspaceStore((s) => s.activeId)
   const saveActiveFromFlow = useWorkspaceStore((s) => s.saveActiveFromFlow)
+  const loadAll = useWorkspaceStore((s) => s.loadAll)
+  const loaded = useWorkspaceStore((s) => s.loaded)
   const nodes = useFlowStore((s) => s.nodes)
   const edges = useFlowStore((s) => s.edges)
   const onNodesChange = useFlowStore((s) => s.onNodesChange)
@@ -69,13 +77,14 @@ export default function App() {
     [screenToFlowPosition, addNode]
   )
 
-  const onAddAtCenter = useCallback(() => {
-    const bounds = dropRef.current?.getBoundingClientRect()
-    const cx = (bounds?.left ?? 0) + (bounds?.width ?? 0) / 2
-    const cy = (bounds?.top ?? 0) + (bounds?.height ?? 0) / 2
-    const center = screenToFlowPosition({ x: cx, y: cy })
-    addNode('process' as any, center)
-  }, [screenToFlowPosition, addNode])
+  // Removed: Add Node button from Topbar; inline rename is used instead
+
+  // Initial load of diagrams from DB
+  useEffect(() => {
+    if (!loaded) {
+      loadAll()
+    }
+  }, [loaded, loadAll])
 
   // Sync to workspace when autosave is on and active diagram exists
   useEffect(() => {
@@ -91,7 +100,7 @@ export default function App() {
     <div className="flex h-screen">
       <Palette />
       <div className="flex-1 flex flex-col">
-        <Topbar onAddAtCenter={onAddAtCenter} />
+        <Topbar />
         <div ref={dropRef} className="flex-1">
           <ReactFlow
             nodes={nodes}

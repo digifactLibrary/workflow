@@ -2,13 +2,17 @@ import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useFlowStore } from '../state/flowStore'
-import { Plus, Undo2, Redo2, Trash2, Upload, Download, LayoutGrid } from 'lucide-react'
+import { Undo2, Redo2, Upload, Download, LayoutGrid } from 'lucide-react'
 import { Switch } from './ui/switch'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../state/workspaceStore'
+import { Input } from './ui/input'
 
-export function Topbar({ onAddAtCenter }: { onAddAtCenter: () => void }) {
+export function Topbar() {
   const toggleDashboard = useWorkspaceStore((s) => s.toggleDashboard)
+  const activeId = useWorkspaceStore((s) => s.activeId)
+  const rename = useWorkspaceStore((s) => s.rename)
+  const diagramName = useWorkspaceStore((s) => (s.activeId ? s.diagrams[s.activeId]?.name ?? '' : ''))
   const undo = useFlowStore((s) => s.undo)
   const redo = useFlowStore((s) => s.redo)
   const del = useFlowStore((s) => s.deleteSelection)
@@ -18,6 +22,20 @@ export function Topbar({ onAddAtCenter }: { onAddAtCenter: () => void }) {
   const edges = useFlowStore((s) => s.edges)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(diagramName)
+
+  useEffect(() => {
+    setNameDraft(diagramName)
+  }, [diagramName])
+
+  useEffect(() => {
+    if (editingName) {
+      nameInputRef.current?.focus()
+      nameInputRef.current?.select()
+    }
+  }, [editingName])
 
   useHotkeys('ctrl+z, cmd+z', (e) => { e.preventDefault(); undo() }, [undo])
   useHotkeys('ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z', (e) => { e.preventDefault(); redo() }, [redo])
@@ -58,12 +76,40 @@ export function Topbar({ onAddAtCenter }: { onAddAtCenter: () => void }) {
         <Button onClick={() => toggleDashboard(true)} size="sm" variant="outline">
           <LayoutGrid className="mr-2 h-4 w-4" /> Sơ đồ
         </Button>
-        <Button onClick={onAddAtCenter} size="sm">
-          <Plus className="mr-2 h-4 w-4" /> Add Node
-        </Button>
-        <Button onClick={del} size="sm" variant="destructive">
-          <Trash2 className="mr-2 h-4 w-4" /> Delete
-        </Button>
+        {/* Diagram title (click to rename) */}
+        <div className="ml-1 flex items-center">
+          {editingName ? (
+            <Input
+              ref={nameInputRef}
+              value={nameDraft}
+              className="h-8 w-[220px]"
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => {
+                if (activeId) rename(activeId, nameDraft.trim() || diagramName)
+                setEditingName(false)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (activeId) rename(activeId, nameDraft.trim() || diagramName)
+                  setEditingName(false)
+                }
+                if (e.key === 'Escape') {
+                  setNameDraft(diagramName)
+                  setEditingName(false)
+                }
+              }}
+            />
+          ) : (
+            <div
+              role="button"
+              title="Nhấn để sửa tên"
+              className="cursor-text rounded px-2 py-1 text-sm font-medium hover:bg-muted"
+              onClick={() => setEditingName(true)}
+            >
+              {diagramName || 'Untitled diagram'}
+            </div>
+          )}
+        </div>
         <Separator className="mx-2 h-6 w-px" />
         <Button onClick={undo} size="sm" variant="outline">
           <Undo2 className="mr-2 h-4 w-4" /> Undo
