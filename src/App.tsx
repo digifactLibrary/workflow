@@ -45,6 +45,7 @@ const edgeTypes: EdgeTypes = { dir: DirectionEdge }
 
 export default function App() {
   const showDashboard = useWorkspaceStore((s) => s.ui.showDashboard)
+  const showPalette = useWorkspaceStore((s) => s.ui.showPalette)
   const activeId = useWorkspaceStore((s) => s.activeId)
   const saveActiveFromFlow = useWorkspaceStore((s) => s.saveActiveFromFlow)
   const loadAll = useWorkspaceStore((s) => s.loadAll)
@@ -99,7 +100,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen">
-      <Palette />
+      {showPalette && <Palette />}
       <div className="flex-1 flex flex-col">
         <Topbar />
         <div ref={dropRef} className="flex-1">

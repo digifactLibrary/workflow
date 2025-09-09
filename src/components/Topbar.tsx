@@ -2,7 +2,7 @@ import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useFlowStore } from '../state/flowStore'
-import { Undo2, Redo2, Upload, Download, LayoutGrid } from 'lucide-react'
+import { Undo2, Redo2, Upload, Download, LayoutGrid, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Switch } from './ui/switch'
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../state/workspaceStore'
@@ -10,6 +10,8 @@ import { Input } from './ui/input'
 
 export function Topbar() {
   const toggleDashboard = useWorkspaceStore((s) => s.toggleDashboard)
+  const togglePalette = useWorkspaceStore((s) => s.togglePalette)
+  const showPalette = useWorkspaceStore((s) => s.ui.showPalette)
   const activeId = useWorkspaceStore((s) => s.activeId)
   const rename = useWorkspaceStore((s) => s.rename)
   const diagramName = useWorkspaceStore((s) => (s.activeId ? s.diagrams[s.activeId]?.name ?? '' : ''))
@@ -72,17 +74,17 @@ export function Topbar() {
 
   return (
     <div className="sticky top-0 z-10 w-full border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-12 items-center gap-2 px-3">
-        <Button onClick={() => toggleDashboard(true)} size="sm" variant="outline">
-          <LayoutGrid className="mr-2 h-4 w-4" /> Sơ đồ
+      <div className="mx-auto relative flex h-12 items-center px-3">
+        <Button onClick={() => togglePalette()} size="sm" variant="outline" title={showPalette ? 'Ẩn Object Component' : 'Hiện Object Component'}>
+          {showPalette ? <PanelLeftClose className="mr-2 h-4 w-4" /> : <PanelLeftOpen className="mr-2 h-4 w-4" />} {showPalette ? 'Hide' : 'Show'}
         </Button>
-        {/* Diagram title (click to rename) */}
-        <div className="ml-1 flex items-center">
+        {/* Centered diagram title */}
+        <div className="absolute left-1/2 -translate-x-1/2">
           {editingName ? (
             <Input
               ref={nameInputRef}
               value={nameDraft}
-              className="h-8 w-[220px]"
+              className="h-8 w-[240px]"
               onChange={(e) => setNameDraft(e.target.value)}
               onBlur={() => {
                 if (activeId) rename(activeId, nameDraft.trim() || diagramName)
@@ -110,22 +112,26 @@ export function Topbar() {
             </div>
           )}
         </div>
-        <Separator className="mx-2 h-6 w-px" />
-        <Button onClick={undo} size="sm" variant="outline">
-          <Undo2 className="mr-2 h-4 w-4" /> Undo
+        <Button onClick={() => toggleDashboard(true)} size="sm" variant="outline" className="ml-2">
+          <LayoutGrid className="mr-2 h-4 w-4" /> Dashboard
         </Button>
-        <Button onClick={redo} size="sm" variant="outline">
-          <Redo2 className="mr-2 h-4 w-4" /> Redo
-        </Button>
-        <Separator className="mx-2 h-6 w-px" />
-        <Button size="sm" variant="outline" onClick={onExport}>
-          <Download className="mr-2 h-4 w-4" /> Export
-        </Button>
-        <input ref={fileRef} type="file" accept="application/json" onChange={onImport} className="hidden" />
-        <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
-          <Upload className="mr-2 h-4 w-4" /> Import
-        </Button>
-        <div className="ml-auto flex items-center gap-2 text-sm">
+                <div className="ml-auto flex items-center gap-2 text-sm">
+          <Separator className="mx-2 h-6 w-px" />
+          <Button onClick={undo} size="sm" variant="outline">
+            <Undo2 className="mr-2 h-4 w-4" /> Undo
+          </Button>
+          <Button onClick={redo} size="sm" variant="outline">
+            <Redo2 className="mr-2 h-4 w-4" /> Redo
+          </Button>
+          <Separator className="mx-2 h-6 w-px" />
+          <Button size="sm" variant="outline" onClick={onExport}>
+            <Download className="mr-2 h-4 w-4" /> Export
+          </Button>
+          <input ref={fileRef} type="file" accept="application/json" onChange={onImport} className="hidden" />
+          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
+            <Upload className="mr-2 h-4 w-4" /> Import
+          </Button>
+          <Separator className="mx-2 h-6 w-px" />
           <span className="text-muted-foreground">Autosave</span>
           <Switch checked={autosave} onCheckedChange={(v) => setAutosave(!!v)} />
         </div>
@@ -133,3 +139,10 @@ export function Topbar() {
     </div>
   )
 }
+
+
+
+
+
+
+

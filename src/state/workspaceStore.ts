@@ -16,7 +16,7 @@ type WorkspaceState = {
   diagrams: Record<string, DiagramMeta>
   order: string[]
   activeId?: string
-  ui: { showDashboard: boolean }
+  ui: { showDashboard: boolean; showPalette: boolean }
   loaded: boolean
   loadAll: () => Promise<void>
   create: (name?: string, initial?: DiagramData) => Promise<string>
@@ -26,13 +26,14 @@ type WorkspaceState = {
   duplicate: (id: string) => Promise<string>
   saveActiveFromFlow: () => Promise<void>
   toggleDashboard: (v?: boolean) => void
+  togglePalette: (v?: boolean) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   diagrams: {},
   order: [],
   activeId: undefined,
-  ui: { showDashboard: true },
+  ui: { showDashboard: true, showPalette: true },
   loaded: false,
 
   loadAll: async () => {
@@ -46,7 +47,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       diagrams[d.id] = { id: d.id, name: d.name, createdAt: created, updatedAt: updated, data: { nodes: [], edges: [] } }
       order.push(d.id)
     })
-    set({ diagrams, order, loaded: true })
+    set((s) => ({ diagrams, order, loaded: true, ui: { ...s.ui, showDashboard: diagrams && Object.keys(diagrams).length === 0 } }))
   },
 
   create: async (name = 'Sơ đồ mới', initial = { nodes: [], edges: [] }) => {
@@ -146,5 +147,5 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   },
 
   toggleDashboard: (v) => set((s) => ({ ui: { ...s.ui, showDashboard: typeof v === 'boolean' ? v : !s.ui.showDashboard } })),
+  togglePalette: (v) => set((s) => ({ ui: { ...s.ui, showPalette: typeof v === 'boolean' ? v : !s.ui.showPalette } })),
 }))
-
