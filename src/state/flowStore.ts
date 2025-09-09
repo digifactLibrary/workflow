@@ -33,6 +33,7 @@ type FlowState = Diagram & {
   setSelection: (sel: FlowState['selection']) => void
   setAutosave: (v: boolean) => void
   updateNodeData: (id: string, data: Partial<AlgoNodeData>) => void
+  updateEdgeData: (id: string, data: Record<string, any>) => void
 }
 
 const initial: Diagram = { nodes: [], edges: [] }
@@ -243,6 +244,14 @@ export const useFlowStore = create<FlowState>()(
         s.history.past.push(prev)
         s.history.future = []
         return { nodes }
+      }),
+
+      updateEdgeData: (id, data) => set((s) => {
+        const prev = { nodes: s.nodes, edges: s.edges }
+        const edges = s.edges.map((e) => (e.id === id ? ({ ...e, data: { ...((e.data as any) || {}), ...data } } as AlgoEdge) : e))
+        s.history.past.push(prev)
+        s.history.future = []
+        return { edges }
       }),
 
       deleteSelection: () => set((s) => {

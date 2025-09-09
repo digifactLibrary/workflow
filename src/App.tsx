@@ -25,6 +25,7 @@ import CommentNode from './flow/nodes/CommentNode'
 import DirectionEdge from './flow/edges/DirectionEdge'
 import { Palette } from './flow/palette'
 import { Topbar } from './components/Topbar'
+import { DetailBar } from './components/DetailBar'
 import { useFlowStore } from './state/flowStore'
 import { useWorkspaceStore } from './state/workspaceStore'
 import { Dashboard } from './components/Dashboard'
@@ -103,7 +104,8 @@ export default function App() {
       {showPalette && <Palette />}
       <div className="flex-1 flex flex-col">
         <Topbar />
-        <div ref={dropRef} className="flex-1">
+        <div className="flex-1 flex">
+          <div ref={dropRef} className="flex-1">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -129,7 +131,9 @@ export default function App() {
             <Panel position="top-left" className="m-2 rounded-md border bg-background/80 p-2 shadow">
               <div className="text-xs text-muted-foreground">Kéo thả để thêm node • Nối các điểm handle để tạo liên kết</div>
             </Panel>
-          </ReactFlow>
+            </ReactFlow>
+          </div>
+          <DetailBar />
         </div>
       </div>
     </div>
