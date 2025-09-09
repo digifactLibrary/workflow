@@ -9,6 +9,7 @@ import {
   type EdgeTypes,
   Panel,
 } from '@xyflow/react'
+import { SelectionMode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './index.css'
 
@@ -112,6 +113,9 @@ export default function App() {
             edgeTypes={edgeTypes}
             onDragOver={onDragOver}
             onDrop={onDrop}
+            selectionOnDrag
+            panOnDrag={[1, 2]}
+            selectionMode={SelectionMode.Partial}
             fitView
             proOptions={{ hideAttribution: true }}
             onSelectionChange={(params) => {
