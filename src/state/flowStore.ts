@@ -152,6 +152,7 @@ export const useFlowStore = create<FlowState>()(
           ...(((defaults as any)[t]) ?? (
             t === 'trigger' ? { data: { label: 'Trigger' }, width: 180, height: 56 } :
             t === 'send' ? { data: { label: 'Send Message' }, width: 200, height: 56 } :
+            t === 'human' ? { data: { label: 'Human' }, width: 180, height: 56 } :
             t === 'condition' ? { data: { label: 'Condition' }, width: 180, height: 120 } :
             t === 'and' ? { data: { label: 'AND' }, width: 120, height: 48 } :
             t === 'or' ? { data: { label: 'OR' }, width: 120, height: 48 } :

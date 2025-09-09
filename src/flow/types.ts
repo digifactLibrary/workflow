@@ -8,6 +8,7 @@ export type AlgoNodeType =
   | 'condition'     // free condition, unlimited outputs
   | 'trigger'
   | 'send'
+  | 'human'
   | 'and'
   | 'or'
   | 'comment'
@@ -15,6 +16,13 @@ export type AlgoNodeType =
 export type AlgoNodeData = {
   label: string
   color?: string
+  // Trigger-specific optional fields
+  triggerEvents?: string[]
+  triggerModules?: string[]
+  api?: string
+  webhook?: string
+  // Send-specific optional fields
+  sendKinds?: string[]
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>

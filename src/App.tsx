@@ -19,6 +19,7 @@ import DecisionNode from './flow/nodes/DecisionNode'
 import ConditionNode from './flow/nodes/ConditionNode'
 import TriggerNode from './flow/nodes/TriggerNode'
 import SendMessageNode from './flow/nodes/SendMessageNode'
+import HumanNode from './flow/nodes/HumanNode'
 import AndNode from './flow/nodes/AndNode'
 import OrNode from './flow/nodes/OrNode'
 import CommentNode from './flow/nodes/CommentNode'
@@ -37,6 +38,7 @@ const nodeTypes: NodeTypes = {
   condition: ConditionNode,
   trigger: TriggerNode,
   send: SendMessageNode,
+  human: HumanNode,
   and: AndNode,
   or: OrNode,
   comment: CommentNode,
