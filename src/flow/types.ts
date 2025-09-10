@@ -23,6 +23,16 @@ export type AlgoNodeData = {
   webhook?: string
   // Send-specific optional fields
   sendKinds?: string[]
+  // Human-specific optional fields
+  humanType?: 'personal' | 'role'
+  // Effective union of selected people from both blocks
+  humanPersons?: string[]
+  // Separate selections per block
+  humanPersonsPersonal?: string[]
+  humanPersonsByRole?: string[]
+  humanRoles?: string[]
+  humanDepartments?: string[]
+  humanRolePeopleInitialized?: boolean
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>
