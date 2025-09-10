@@ -38,9 +38,14 @@ export function Dashboard() {
             <h1 className="text-xl font-semibold">Dashboard Sơ đồ</h1>
             <p className="text-sm text-muted-foreground">Quản lý nhiều sơ đồ (tạo, mở, đổi tên, nhân đôi, xoá)</p>
           </div>
-          <Button onClick={() => create()}>
-            <FolderPlus className="mr-2 h-4 w-4" /> Sơ đồ mới
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => create()}>
+              <FolderPlus className="mr-2 h-4 w-4" /> Sơ đồ mới
+            </Button>
+            <Button variant="outline" onClick={() => logout()}>
+              <LogOut className="mr-2 h-4 w-4" /> Đăng xuất
+            </Button>
+          </div>
         </div>
         <Separator />
 
