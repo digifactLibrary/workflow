@@ -1,16 +1,18 @@
 import BaseNode from './BaseNode'
-import NodeLabel from '../NodeLabel'
+import { SquaresIntersect } from 'lucide-react'
 
 export default function AndNode(props: any) {
-  const { data, id } = props
+  const { data } = props
   return (
     <BaseNode
       {...props}
-      className="rounded-md border-2 border-emerald-400/80 bg-emerald-50"
+      className=""
       data={{ ...data, label: data?.label ?? 'AND' }}
+      hideResizer
+      frameless
     >
-      <div className="text-emerald-700 font-semibold text-center">
-        <NodeLabel id={id} value={data?.label} placeholder="AND" />
+      <div className="h-6 w-12 rounded-md border-2 border-emerald-400 bg-emerald-50 grid place-items-center text-emerald-700">
+        <SquaresIntersect className="h-4 w-4" />
       </div>
     </BaseNode>
   )

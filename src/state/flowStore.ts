@@ -156,15 +156,19 @@ export const useFlowStore = create<FlowState>()(
             t === 'condition' ? { data: { label: 'Condition' }, width: 180, height: 120 } :
             t === 'get' ? { data: { label: 'Get Value' }, width: 200, height: 56 } :
             t === 'set' ? { data: { label: 'Set Value' }, width: 200, height: 56 } :
-            t === 'and' ? { data: { label: 'AND' }, width: 120, height: 48 } :
-            t === 'or' ? { data: { label: 'OR' }, width: 120, height: 48 } :
+            t === 'and' ? { data: { label: 'AND' }, width: 48, height: 24 } :
+            t === 'or' ? { data: { label: 'OR' }, width: 48, height: 24 } :
             t === 'comment' ? { data: { label: 'Comment' } } :
             { data: { label: String(t).toUpperCase() } }
           )),
         } as AlgoNode
         if (t === 'start' || t === 'end') {
-          ;(node as any).width = 64
-          ;(node as any).height = 48
+          ;(node as any).width = 32
+          ;(node as any).height = 32
+        }
+        if (t === 'and' || t === 'or') {
+          ;(node as any).width = 48
+          ;(node as any).height = 24
         }
         const prev = { nodes: s.nodes, edges: s.edges }
         s.history.past.push(prev)

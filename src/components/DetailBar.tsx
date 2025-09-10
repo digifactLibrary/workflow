@@ -380,8 +380,8 @@ export function DetailBar() {
   }
 
   if (!selectedNode && !selectedEdge) return null
-  // Hide DetailBar for Start/End nodes
-  if (selectedNode && (selectedNode.type === 'start' || selectedNode.type === 'end')) return null
+  // Hide DetailBar for Start/End/And/Or nodes
+  if (selectedNode && (selectedNode.type === 'start' || selectedNode.type === 'end' || selectedNode.type === 'and' || selectedNode.type === 'or')) return null
 
   const title = selectedNode ? `Node: ${selectedNode.type}` : 'Edge'
 

@@ -1,16 +1,18 @@
 import BaseNode from './BaseNode'
-import NodeLabel from '../NodeLabel'
+import { SplitSquareHorizontal } from 'lucide-react'
 
 export default function OrNode(props: any) {
-  const { data, id } = props
+  const { data } = props
   return (
     <BaseNode
       {...props}
-      className="rounded-md border-2 border-orange-400/80 bg-orange-50"
+      className=""
       data={{ ...data, label: data?.label ?? 'OR' }}
+      hideResizer
+      frameless
     >
-      <div className="text-orange-700 font-semibold text-center">
-        <NodeLabel id={id} value={data?.label} placeholder="OR" />
+      <div className="h-6 w-12 rounded-md border-2 border-orange-400 bg-orange-50 grid place-items-center text-orange-700">
+        <SplitSquareHorizontal className="h-4 w-4" />
       </div>
     </BaseNode>
   )
