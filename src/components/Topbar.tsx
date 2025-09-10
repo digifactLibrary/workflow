@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { Input } from './ui/input'
 import { useAuthStore } from '../state/authStore'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip'
 
 export function Topbar() {
   const toggleDashboard = useWorkspaceStore((s) => s.toggleDashboard)
@@ -69,80 +70,170 @@ export function Topbar() {
           // push to history for undo
           useFlowStore.getState().setDiagram({ nodes: obj.nodes, edges: obj.edges })
         }
-      } catch {}
+      } catch (error) {
+        console.error('Failed to parse imported file:', error)
+      }
     }
     reader.readAsText(f)
   }
 
   return (
-    <div className="sticky top-0 z-10 w-full border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto relative flex h-12 items-center px-3">
-        <Button onClick={() => togglePalette()} size="sm" variant="outline" title={showPalette ? 'Ẩn Object Component' : 'Hiện Object Component'}>
-          {showPalette ? <PanelLeftClose className="mr-2 h-4 w-4" /> : <PanelLeftOpen className="mr-2 h-4 w-4" />} {showPalette ? 'Hide' : 'Show'}
-        </Button>
-        {/* Centered diagram title */}
-        <div className="absolute left-1/2 -translate-x-1/2">
-          {editingName ? (
-            <Input
-              ref={nameInputRef}
-              value={nameDraft}
-              className="h-8 w-[240px]"
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={() => {
-                if (activeId) rename(activeId, nameDraft.trim() || diagramName)
-                setEditingName(false)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  if (activeId) rename(activeId, nameDraft.trim() || diagramName)
-                  setEditingName(false)
-                }
-                if (e.key === 'Escape') {
-                  setNameDraft(diagramName)
-                  setEditingName(false)
-                }
-              }}
-            />
-          ) : (
-            <div
-              role="button"
-              title="Nhấn để sửa tên"
-              className="cursor-text rounded px-2 py-1 text-sm font-medium hover:bg-muted"
-              onClick={() => setEditingName(true)}
-            >
-              {diagramName || 'Untitled diagram'}
+    <TooltipProvider>
+      <div className="sticky top-0 z-10 w-full border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex h-12 items-center px-3 justify-between">
+          {/* Left section - Palette toggle and Dashboard */}
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={() => togglePalette()} size="sm" variant="outline">
+                  {showPalette ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+                  <span className="hidden lg:ml-2 lg:block">{showPalette ? 'Hide' : 'Show'}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {showPalette ? 'Ẩn Object Component' : 'Hiện Object Component'}
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={() => toggleDashboard(true)} size="sm" variant="outline">
+                  <LayoutGrid className="h-4 w-4" />
+                  <span className="hidden lg:ml-2 lg:block">Dashboard</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Dashboard
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Center section - Diagram title */}
+          <div className="flex-1 flex justify-center mx-4">
+            <div className="max-w-[200px] md:max-w-[300px] lg:max-w-[400px] w-full">
+              {editingName ? (
+                <Input
+                  ref={nameInputRef}
+                  value={nameDraft}
+                  className="h-8 w-full min-w-[150px]"
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={() => {
+                    if (activeId) rename(activeId, nameDraft.trim() || diagramName)
+                    setEditingName(false)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (activeId) rename(activeId, nameDraft.trim() || diagramName)
+                      setEditingName(false)
+                    }
+                    if (e.key === 'Escape') {
+                      setNameDraft(diagramName)
+                      setEditingName(false)
+                    }
+                  }}
+                />
+              ) : (
+                <div
+                  role="button"
+                  title="Nhấn để sửa tên"
+                  className="cursor-text rounded px-2 py-1 text-sm font-medium hover:bg-muted truncate min-w-[150px] text-center"
+                  onClick={() => setEditingName(true)}
+                >
+                  {diagramName || 'Untitled diagram'}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <Button onClick={() => toggleDashboard(true)} size="sm" variant="outline" className="ml-2">
-          <LayoutGrid className="mr-2 h-4 w-4" /> Dashboard
-        </Button>
-                <div className="ml-auto flex items-center gap-2 text-sm">
-          <Separator className="mx-2 h-6 w-px" />
-          <Button onClick={undo} size="sm" variant="outline">
-            <Undo2 className="mr-2 h-4 w-4" /> Undo
-          </Button>
-          <Button onClick={redo} size="sm" variant="outline">
-            <Redo2 className="mr-2 h-4 w-4" /> Redo
-          </Button>
-          <Separator className="mx-2 h-6 w-px" />
-          <Button size="sm" variant="outline" onClick={onExport}>
-            <Download className="mr-2 h-4 w-4" /> Export
-          </Button>
-          <input ref={fileRef} type="file" accept="application/json" onChange={onImport} className="hidden" />
-          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
-            <Upload className="mr-2 h-4 w-4" /> Import
-          </Button>
-          <Separator className="mx-2 h-6 w-px" />
-          <span className="text-muted-foreground">Autosave</span>
-          <Switch checked={autosave} onCheckedChange={(v) => setAutosave(!!v)} />
-          <Separator className="mx-2 h-6 w-px" />
-          <Button onClick={logout} size="sm" variant="outline" title="Đăng xuất">
-            <LogOut className="mr-2 h-4 w-4" /> Đăng xuất
-          </Button>
+          </div>
+
+          {/* Right section - Controls */}
+          <div className="flex items-center gap-1 md:gap-2">
+            <Separator className="mx-1 md:mx-2 h-6 w-px" />
+            
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={undo} size="sm" variant="outline">
+                  <Undo2 className="h-4 w-4" />
+                  <span className="hidden xl:ml-2 xl:block">Undo</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Hoàn tác (Ctrl+Z)
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={redo} size="sm" variant="outline">
+                  <Redo2 className="h-4 w-4" />
+                  <span className="hidden xl:ml-2 xl:block">Redo</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Làm lại (Ctrl+Y)
+              </TooltipContent>
+            </Tooltip>
+
+            <Separator className="mx-1 md:mx-2 h-6 w-px" />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="outline" onClick={onExport}>
+                  <Download className="h-4 w-4" />
+                  <span className="hidden xl:ml-2 xl:block">Export</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Xuất file (Ctrl+S)
+              </TooltipContent>
+            </Tooltip>
+
+            <input ref={fileRef} type="file" accept="application/json" onChange={onImport} className="hidden" />
+            
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
+                  <Upload className="h-4 w-4" />
+                  <span className="hidden xl:ml-2 xl:block">Import</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Nhập file
+              </TooltipContent>
+            </Tooltip>
+
+            <Separator className="mx-1 md:mx-2 h-6 w-px" />
+
+            <div className="flex items-center gap-1 md:gap-2">
+              <span className="text-muted-foreground text-xs md:text-sm hidden md:block">Autosave</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Switch checked={autosave} onCheckedChange={(v) => setAutosave(!!v)} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Tự động lưu
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <Separator className="mx-1 md:mx-2 h-6 w-px" />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={logout} size="sm" variant="outline">
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden lg:ml-2 lg:block">Đăng xuất</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Đăng xuất
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
 
