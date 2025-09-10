@@ -1,6 +1,6 @@
 import { Separator } from '../components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '../components/ui/tooltip'
-import { CirclePlay, Square, Diamond, Bolt, Send, StickyNote, SquaresIntersect, SplitSquareHorizontal, User } from 'lucide-react'
+import { CirclePlay, Square, Diamond, Bolt, Send, StickyNote, SquaresIntersect, SplitSquareHorizontal, User, Download, Upload } from 'lucide-react'
 import { useReactFlow } from '@xyflow/react'
 import { useFlowStore } from '../state/flowStore'
 import React from 'react'
@@ -57,6 +57,16 @@ export function Palette() {
           type="send"
           label="Send Message"
           preview={<div className="h-6 w-12 rounded-lg border-2 border-violet-400 bg-violet-50 grid place-items-center text-violet-700"><Send className="h-4 w-4"/></div>}
+        />
+        <Item
+          type="get"
+          label="Get Value"
+          preview={<div className="h-6 w-12 rounded-lg border-2 border-emerald-400 bg-emerald-50 grid place-items-center text-emerald-700"><Download className="h-4 w-4"/></div>}
+        />
+        <Item
+          type="set"
+          label="Set Value"
+          preview={<div className="h-6 w-12 rounded-lg border-2 border-fuchsia-400 bg-fuchsia-50 grid place-items-center text-fuchsia-700"><Upload className="h-4 w-4"/></div>}
         />
         <Item
           type="human"

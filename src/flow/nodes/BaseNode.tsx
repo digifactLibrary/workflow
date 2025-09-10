@@ -11,12 +11,14 @@ type BaseProps = {
   className?: string
   children?: React.ReactNode
   hideHandles?: boolean
+  hideResizer?: boolean
+  frameless?: boolean
 }
 
-export const BaseNode = memo(({ id, data, selected, className, children, hideHandles }: BaseProps) => {
+export const BaseNode = memo(({ id, data, selected, className, children, hideHandles, hideResizer, frameless }: BaseProps) => {
   const { deleteElements, addNodes, getNode } = useReactFlow()
   return (
-    <div className={cn('relative rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
+    <div className={cn(frameless ? 'relative' : 'relative rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
       <NodeToolbar isVisible={selected} position={Position.Top} className="gap-1 p-1">
         <Button
           size="sm"
@@ -34,7 +36,9 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
           <Trash2 className="h-4 w-4" />
         </Button>
       </NodeToolbar>
-      <NodeResizer isVisible={selected} minWidth={120} minHeight={48} color="#94a3b8" />
+      {!hideResizer && (
+        <NodeResizer isVisible={selected} minWidth={120} minHeight={48} color="#94a3b8" />
+      )}
       {!hideHandles && (
         <>
           {/* Source handles (start here) */}

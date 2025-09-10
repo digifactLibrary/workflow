@@ -9,6 +9,8 @@ export type AlgoNodeType =
   | 'trigger'
   | 'send'
   | 'human'
+  | 'get'
+  | 'set'
   | 'and'
   | 'or'
   | 'comment'

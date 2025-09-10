@@ -1,20 +1,19 @@
 import { Square } from 'lucide-react'
 import BaseNode from './BaseNode'
-import NodeLabel from '../NodeLabel'
 
 export default function EndNode(props: any) {
-  const { data, id } = props
+  const { data } = props
   return (
     <BaseNode
       {...props}
-      className="rounded-full border-2 border-rose-400/70 bg-rose-50"
+      className=""
       data={{ ...data, label: data?.label ?? 'End' }}
+      hideResizer
+      frameless
     >
-      <div className="flex items-center gap-2 text-rose-700">
+      <div className="h-8 w-8 rounded-full border-2 border-rose-400 bg-rose-50 text-rose-700 grid place-items-center">
         <Square className="h-4 w-4" />
-        <NodeLabel id={id} value={data?.label ?? 'End'} className="font-semibold" />
       </div>
     </BaseNode>
   )
 }
-

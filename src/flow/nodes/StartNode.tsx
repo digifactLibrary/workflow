@@ -1,21 +1,20 @@
-import { Play } from 'lucide-react'
+import { CirclePlay } from 'lucide-react'
 import BaseNode from './BaseNode'
 import { cn } from '../../lib/utils'
-import NodeLabel from '../NodeLabel'
 
 export default function StartNode(props: any) {
-  const { data, id } = props
+  const { data } = props
   return (
     <BaseNode
       {...props}
-      className={cn('rounded-full border-2 border-emerald-400/70 bg-emerald-50')}
+      className={cn('')}
       data={{ ...data, label: data?.label ?? 'Start' }}
+      hideResizer
+      frameless
     >
-      <div className="flex items-center gap-2 text-emerald-700">
-        <Play className="h-4 w-4" />
-        <NodeLabel id={id} value={data?.label ?? 'Start'} className="font-semibold bg-transparent" />
+      <div className="h-8 w-8 rounded-full border-2 border-emerald-400 bg-emerald-50 text-emerald-600 grid place-items-center">
+        <CirclePlay className="h-4 w-4" />
       </div>
     </BaseNode>
   )
 }
-
