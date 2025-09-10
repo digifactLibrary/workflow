@@ -9,6 +9,7 @@ export default function SendMessageNode(props: any) {
       {...props}
       className="rounded-xl border-2 border-violet-400/70 bg-violet-50/90"
       data={{ ...data, label: data?.label ?? 'Send Message' }}
+      ports={{ top: 'both', right: 'both', bottom: 'both', left: 'both' }}
     >
       <div className="text-violet-700 font-semibold flex items-center gap-2">
         <Send className="h-4 w-4" />
@@ -17,3 +18,4 @@ export default function SendMessageNode(props: any) {
     </BaseNode>
   )
 }
+

@@ -1,0 +1,327 @@
+import BaseNode from './BaseNode'
+import { SquaresIntersect } from 'lucide-react'
+
+export default function AndNode(props: any) {
+  const { data } = props
+  return (
+    <BaseNode
+      {...props}
+      className=""
+      data={{ ...data, label: data?.label ?? 'AND' }}
+      hideResizer
+      frameless
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="h-6 w-12 rounded-md border-2 border-emerald-400 bg-emerald-50 grid place-items-center text-emerald-700">
+        <SquaresIntersect className="h-4 w-4" />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { memo } from 'react'
+import { Handle, NodeToolbar, NodeResizer, Position, useReactFlow } from '@xyflow/react'
+import { Button } from '../../components/ui/button'
+import { Trash2, Copy } from 'lucide-react'
+import { cn } from '../../lib/utils'
+
+type BaseProps = {
+  id: string
+  data: { label: string; color?: string }
+  selected?: boolean
+  className?: string
+  children?: React.ReactNode
+  hideHandles?: boolean
+  hideResizer?: boolean
+  frameless?: boolean
+  ports?: { top?: 'source' | 'target' | 'both' | null; right?: 'source' | 'target' | 'both' | null; bottom?: 'source' | 'target' | 'both' | null; left?: 'source' | 'target' | 'both' | null }
+}
+
+export const BaseNode = memo(({ id, data, selected, className, children, hideHandles, hideResizer, frameless, ports }: BaseProps) => {
+  const { deleteElements, addNodes, getNode } = useReactFlow()
+  // Default: allow both start/end on all sides
+  const p = ports ?? { top: 'both', right: 'both', bottom: 'both', left: 'both' }
+  return (
+    <div className={cn(frameless ? 'relative' : 'relative rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
+      <NodeToolbar isVisible={selected} position={Position.Top} className="gap-1 p-1">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            const n = getNode(id)
+            if (!n) return
+            const offset = 40
+            addNodes({ ...n, id: `${id}-copy-${Math.round(Math.random()*1000)}`, position: { x: n.position.x + offset, y: n.position.y + offset } })
+          }}
+        >
+          <Copy className="h-4 w-4" />
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => deleteElements({ nodes: [{ id }] })}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </NodeToolbar>
+      {!hideResizer && (
+        <NodeResizer isVisible={selected} minWidth={120} minHeight={48} color="#94a3b8" />
+      )}
+      {!hideHandles && (
+        <>
+          {/* Top side: source centered, target offset */}
+          {p.top && (p.top === 'source' || p.top === 'both') && (
+            <Handle id="s-top" type="source" position={Position.Top} isConnectableStart isConnectableEnd={false} className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
+          )}
+          {p.top && (p.top === 'target' || p.top === 'both') && (
+            <Handle id="t-top" type="target" position={Position.Top} isConnectableStart={false} isConnectableEnd className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" style={p.top === 'both' ? { transform: 'translateX(12px)', zIndex: 3 } : undefined} />
+          )}
+
+          {/* Right side */}
+          {p.right && (p.right === 'target' || p.right === 'both') && (
+            <Handle id="t-right" type="target" position={Position.Right} isConnectableStart={false} isConnectableEnd className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" style={p.right === 'both' ? { transform: 'translateY(12px)', zIndex: 3 } : undefined} />
+          )}
+          {p.right && (p.right === 'source' || p.right === 'both') && (
+            <Handle id="s-right" type="source" position={Position.Right} isConnectableStart isConnectableEnd={false} className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
+          )}
+
+          {/* Bottom side */}
+          {p.bottom && (p.bottom === 'target' || p.bottom === 'both') && (
+            <Handle id="t-bottom" type="target" position={Position.Bottom} isConnectableStart={false} isConnectableEnd className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" style={p.bottom === 'both' ? { transform: 'translateX(12px)', zIndex: 3 } : undefined} />
+          )}
+          {p.bottom && (p.bottom === 'source' || p.bottom === 'both') && (
+            <Handle id="s-bottom" type="source" position={Position.Bottom} isConnectableStart isConnectableEnd={false} className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
+          )}
+
+          {/* Left side: source centered, target offset */}
+          {p.left && (p.left === 'source' || p.left === 'both') && (
+            <Handle id="s-left" type="source" position={Position.Left} isConnectableStart isConnectableEnd={false} className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
+          )}
+          {p.left && (p.left === 'target' || p.left === 'both') && (
+            <Handle id="t-left" type="target" position={Position.Left} isConnectableStart={false} isConnectableEnd className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white" style={p.left === 'both' ? { transform: 'translateY(12px)', zIndex: 3 } : undefined} />
+          )}
+        </>
+      )}
+
+      <div className={cn(frameless ? 'select-none grid place-items-center' : 'px-4 py-2 select-none', data.color)}>
+        {children ?? data.label}
+      </div>
+    </div>
+  )
+})
+
+export default BaseNode
+import NodeLabel from '../NodeLabel'
+
+// Pure text comment node (no border, no icon, no handles)
+export default function CommentNode(props: any) {
+  const { data, id } = props
+  return (
+    <div className="min-w-[24px] min-h-[18px] px-1 py-0.5 text-[13px] leading-snug text-zinc-700">
+      <NodeLabel id={id} value={data?.label} placeholder="Comment" />
+    </div>
+  )
+}
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+// Free condition (no output constraints)
+export default function ConditionNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="border-2 border-teal-400/80 bg-teal-50 [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]"
+      data={{ ...data, label: data?.label ?? 'Condition' }}
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'source' }}
+    >
+      <div className="text-teal-700 font-semibold text-center px-8 py-4">
+        <NodeLabel id={id} value={data?.label ?? 'Condition'} />
+      </div>
+    </BaseNode>
+  )
+}
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+export default function DecisionNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="border-2 border-amber-400/80 bg-amber-50 [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]"
+      data={{ ...data, label: data?.label ?? 'Decision' }}
+    >
+      <div className="text-amber-700 font-semibold text-center px-8 py-4">
+        <NodeLabel id={id} value={data?.label ?? 'Decision'} />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { Square } from 'lucide-react'
+import BaseNode from './BaseNode'
+
+export default function EndNode(props: any) {
+  const { data } = props
+  return (
+    <BaseNode
+      {...props}
+      className=""
+      data={{ ...data, label: data?.label ?? 'End' }}
+      hideResizer
+      frameless
+      ports={{ top: 'target', right: null, bottom: 'target', left: 'target' }}
+    >
+      <div className="h-8 w-8 rounded-full border-2 border-rose-400 bg-rose-50 text-rose-700 grid place-items-center">
+        <Square className="h-4 w-4" />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { Download } from 'lucide-react'
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+export default function GetValueNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="rounded-xl border-2 border-emerald-400/70 bg-emerald-50/90"
+      data={{ ...data, label: data?.label ?? 'Get Value' }}
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="text-emerald-700 font-semibold flex items-center gap-2">
+        <Download className="h-4 w-4" />
+        <NodeLabel id={id} value={data?.label ?? 'Get Value'} />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { User } from 'lucide-react'
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+export default function HumanNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="rounded-xl border-2 border-sky-400/70 bg-sky-50/90"
+      data={{ ...data, label: data?.label ?? 'Human' }}
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="text-sky-700 font-semibold flex items-center gap-2">
+        <User className="h-4 w-4" />
+        <NodeLabel id={id} value={data?.label ?? 'Human'} />
+      </div>
+    </BaseNode>
+  )
+}
+
+import BaseNode from './BaseNode'
+import { SplitSquareHorizontal } from 'lucide-react'
+
+export default function OrNode(props: any) {
+  const { data } = props
+  return (
+    <BaseNode
+      {...props}
+      className=""
+      data={{ ...data, label: data?.label ?? 'OR' }}
+      hideResizer
+      frameless
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="h-6 w-12 rounded-md border-2 border-orange-400 bg-orange-50 grid place-items-center text-orange-700">
+        <SplitSquareHorizontal className="h-4 w-4" />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { Send } from 'lucide-react'
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+export default function SendMessageNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="rounded-xl border-2 border-violet-400/70 bg-violet-50/90"
+      data={{ ...data, label: data?.label ?? 'Send Message' }}
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="text-violet-700 font-semibold flex items-center gap-2">
+        <Send className="h-4 w-4" />
+        <NodeLabel id={id} value={data?.label ?? 'Send Message'} />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { Upload } from 'lucide-react'
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+export default function SetValueNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="rounded-xl border-2 border-fuchsia-400/70 bg-fuchsia-50/90"
+      data={{ ...data, label: data?.label ?? 'Set Value' }}
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="text-fuchsia-700 font-semibold flex items-center gap-2">
+        <Upload className="h-4 w-4" />
+        <NodeLabel id={id} value={data?.label ?? 'Set Value'} />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { CirclePlay } from 'lucide-react'
+import BaseNode from './BaseNode'
+import { cn } from '../../lib/utils'
+
+export default function StartNode(props: any) {
+  const { data } = props
+  return (
+    <BaseNode
+      {...props}
+      className={cn('')}
+      data={{ ...data, label: data?.label ?? 'Start' }}
+      hideResizer
+      frameless
+      ports={{ top: 'source', right: 'source', bottom: 'source', left: null }}
+    >
+      <div className="h-8 w-8 rounded-full border-2 border-emerald-400 bg-emerald-50 text-emerald-600 grid place-items-center">
+        <CirclePlay className="h-4 w-4" />
+      </div>
+    </BaseNode>
+  )
+}
+
+import { Bolt } from 'lucide-react'
+import BaseNode from './BaseNode'
+import NodeLabel from '../NodeLabel'
+
+export default function TriggerNode(props: any) {
+  const { data, id } = props
+  return (
+    <BaseNode
+      {...props}
+      className="rounded-xl border-2 border-blue-400/70 bg-blue-50/90"
+      data={{ ...data, label: data?.label ?? 'Trigger' }}
+      ports={{ top: 'target', right: 'source', bottom: 'source', left: 'target' }}
+    >
+      <div className="text-blue-700 font-semibold flex items-center gap-2">
+        <Bolt className="h-4 w-4" />
+        <NodeLabel id={id} value={data?.label ?? 'Trigger'} />
+      </div>
+    </BaseNode>
+  )
+}
+
+

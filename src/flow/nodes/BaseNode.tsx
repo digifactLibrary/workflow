@@ -13,10 +13,13 @@ type BaseProps = {
   hideHandles?: boolean
   hideResizer?: boolean
   frameless?: boolean
+  ports?: { top?: 'source' | 'target' | 'both' | null; right?: 'source' | 'target' | 'both' | null; bottom?: 'source' | 'target' | 'both' | null; left?: 'source' | 'target' | 'both' | null }
 }
 
-export const BaseNode = memo(({ id, data, selected, className, children, hideHandles, hideResizer, frameless }: BaseProps) => {
+export const BaseNode = memo(({ id, data, selected, className, children, hideHandles, hideResizer, frameless, ports }: BaseProps) => {
   const { deleteElements, addNodes, getNode } = useReactFlow()
+  // Default: allow both start/end on all sides
+  const p = ports ?? { top: 'both', right: 'both', bottom: 'both', left: 'both' }
   return (
     <div className={cn(frameless ? 'relative' : 'relative rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
       <NodeToolbar isVisible={selected} position={Position.Top} className="gap-1 p-1">
@@ -41,11 +44,113 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
       )}
       {!hideHandles && (
         <>
-          {/* One handle per side, aligned consistently */}
-          <Handle id="t-top" type="target" position={Position.Top} className="w-3 h-3 bg-slate-900 rounded-full border-2 border-white" />
-          <Handle id="s-right" type="source" position={Position.Right} className="w-3 h-3 bg-slate-900 rounded-full border-2 border-white" />
-          <Handle id="s-bottom" type="source" position={Position.Bottom} className="w-3 h-3 bg-slate-900 rounded-full border-2 border-white" />
-          <Handle id="t-left" type="target" position={Position.Left} className="w-3 h-3 bg-slate-900 rounded-full border-2 border-white" />
+          {/* Top side */}
+          {p.top && (
+            <>
+              {(p.top === 'source' || p.top === 'both') && (
+                <Handle
+                  id="s-top"
+                  type="source"
+                  position={Position.Top}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={true}
+                  isConnectableEnd={p.top === 'both'}
+                />
+              )}
+              {(p.top === 'target' || p.top === 'both') && (
+                <Handle
+                  id="t-top"
+                  type="target"
+                  position={Position.Top}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={p.top === 'both'}
+                  isConnectableEnd={true}
+                  style={p.top === 'both' ? { zIndex: 5 } : undefined}
+                />
+              )}
+            </>
+          )}
+
+          {/* Right side */}
+          {p.right && (
+            <>
+              {(p.right === 'source' || p.right === 'both') && (
+                <Handle
+                  id="s-right"
+                  type="source"
+                  position={Position.Right}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={true}
+                  isConnectableEnd={p.right === 'both'}
+                />
+              )}
+              {(p.right === 'target' || p.right === 'both') && (
+                <Handle
+                  id="t-right"
+                  type="target"
+                  position={Position.Right}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={p.right === 'both'}
+                  isConnectableEnd={true}
+                  style={p.right === 'both' ? { zIndex: 5 } : undefined}
+                />
+              )}
+            </>
+          )}
+
+          {/* Bottom side */}
+          {p.bottom && (
+            <>
+              {(p.bottom === 'source' || p.bottom === 'both') && (
+                <Handle
+                  id="s-bottom"
+                  type="source"
+                  position={Position.Bottom}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={true}
+                  isConnectableEnd={p.bottom === 'both'}
+                />
+              )}
+              {(p.bottom === 'target' || p.bottom === 'both') && (
+                <Handle
+                  id="t-bottom"
+                  type="target"
+                  position={Position.Bottom}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={p.bottom === 'both'}
+                  isConnectableEnd={true}
+                  style={p.bottom === 'both' ? { zIndex: 5 } : undefined}
+                />
+              )}
+            </>
+          )}
+
+          {/* Left side */}
+          {p.left && (
+            <>
+              {(p.left === 'source' || p.left === 'both') && (
+                <Handle
+                  id="s-left"
+                  type="source"
+                  position={Position.Left}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={true}
+                  isConnectableEnd={p.left === 'both'}
+                />
+              )}
+              {(p.left === 'target' || p.left === 'both') && (
+                <Handle
+                  id="t-left"
+                  type="target"
+                  position={Position.Left}
+                  className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
+                  isConnectableStart={p.left === 'both'}
+                  isConnectableEnd={true}
+                  style={p.left === 'both' ? { zIndex: 5 } : undefined}
+                />
+              )}
+            </>
+          )}
         </>
       )}
 

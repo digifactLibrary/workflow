@@ -9,6 +9,7 @@ export default function TriggerNode(props: any) {
       {...props}
       className="rounded-xl border-2 border-blue-400/70 bg-blue-50/90"
       data={{ ...data, label: data?.label ?? 'Trigger' }}
+      ports={{ top: 'both', right: 'both', bottom: 'both', left: 'both' }}
     >
       <div className="text-blue-700 font-semibold flex items-center gap-2">
         <Bolt className="h-4 w-4" />
@@ -17,3 +18,4 @@ export default function TriggerNode(props: any) {
     </BaseNode>
   )
 }
+

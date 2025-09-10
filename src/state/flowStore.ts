@@ -47,7 +47,22 @@ export const useFlowStore = create<FlowState>()(
       history: { past: [], future: [] },
 
       setDiagram: (d, push = true) => set((s) => {
-        const next = { ...d }
+        // migrate any legacy 'b-*' handle ids (temporary from a previous build)
+        const migrateHandle = (h?: string | null, kind: 'source' | 'target' = 'source') => {
+          if (!h) return h as any
+          if (h.startsWith('b-')) {
+            return (kind === 'source' ? 's-' : 't-') + h.slice(2)
+          }
+          return h
+        }
+        const next = {
+          nodes: d.nodes,
+          edges: (d.edges || []).map((e: any) => ({
+            ...e,
+            sourceHandle: migrateHandle(e.sourceHandle, 'source'),
+            targetHandle: migrateHandle(e.targetHandle, 'target'),
+          })),
+        }
         if (push) s.history.past.push({ nodes: s.nodes, edges: s.edges })
         s.history.future = []
         return next
@@ -86,7 +101,26 @@ export const useFlowStore = create<FlowState>()(
 
       onEdgesChange: (changes) => set((s) => {
         const prev = { nodes: s.nodes, edges: s.edges }
-        const edges = applyEdgeChanges(changes as any, s.edges as any) as unknown as AlgoEdge[]
+        let edges = applyEdgeChanges(changes as any, s.edges as any) as unknown as AlgoEdge[]
+        // Renumber outgoing edges for each condition node: 1,2,3,...
+        const conditionIds = new Set(s.nodes.filter((n) => n.type === 'condition').map((n) => n.id))
+        if (conditionIds.size > 0) {
+          const next = edges.map((e) => ({ ...e, data: { ...((e.data as any) || {}) } })) as any[]
+          for (const cid of conditionIds) {
+            const outs = next.filter((e) => e.source === cid)
+            outs.sort((a, b) => {
+              const ai = Number(a.data?.index ?? Number.MAX_SAFE_INTEGER)
+              const bi = Number(b.data?.index ?? Number.MAX_SAFE_INTEGER)
+              if (ai !== bi) return ai - bi
+              return String(a.id).localeCompare(String(b.id))
+            })
+            outs.forEach((e, idx) => {
+              e.data.label = String(idx + 1)
+              e.data.index = idx + 1
+            })
+          }
+          edges = next as unknown as AlgoEdge[]
+        }
         s.history.past.push(prev)
         s.history.future = []
         return { edges }
@@ -118,6 +152,11 @@ export const useFlowStore = create<FlowState>()(
               style = { stroke: '#ef4444' }
             }
           }
+        }
+        if (src?.type === 'condition') {
+          const outgoing = s.edges.filter((e) => e.source === src.id)
+          const nextIndex = outgoing.length + 1
+          edgeData = { ...(edgeData || {}), label: String(nextIndex), index: nextIndex }
         }
         const edge: Edge = {
           ...connection,

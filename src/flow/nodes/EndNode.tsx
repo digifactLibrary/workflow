@@ -10,6 +10,7 @@ export default function EndNode(props: any) {
       data={{ ...data, label: data?.label ?? 'End' }}
       hideResizer
       frameless
+      ports={{ top: 'target', right: 'target', bottom: 'target', left: 'target' }}
     >
       <div className="h-8 w-8 rounded-full border-2 border-rose-400 bg-rose-50 text-rose-700 grid place-items-center">
         <Square className="h-4 w-4" />
@@ -17,3 +18,4 @@ export default function EndNode(props: any) {
     </BaseNode>
   )
 }
+

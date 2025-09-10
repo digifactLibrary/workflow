@@ -11,6 +11,7 @@ export default function StartNode(props: any) {
       data={{ ...data, label: data?.label ?? 'Start' }}
       hideResizer
       frameless
+      ports={{ top: 'source', right: 'source', bottom: 'source', left: 'source' }}
     >
       <div className="h-8 w-8 rounded-full border-2 border-emerald-400 bg-emerald-50 text-emerald-600 grid place-items-center">
         <CirclePlay className="h-4 w-4" />
@@ -18,3 +19,4 @@ export default function StartNode(props: any) {
     </BaseNode>
   )
 }
+

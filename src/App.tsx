@@ -53,10 +53,12 @@ const edgeTypes: EdgeTypes = { dir: DirectionEdge }
 export default function App() {
   const showDashboard = useWorkspaceStore((s) => s.ui.showDashboard)
   const showPalette = useWorkspaceStore((s) => s.ui.showPalette)
+  const showDetailBar = useWorkspaceStore((s) => s.ui.showDetailBar)
   const activeId = useWorkspaceStore((s) => s.activeId)
   const saveActiveFromFlow = useWorkspaceStore((s) => s.saveActiveFromFlow)
   const loadAll = useWorkspaceStore((s) => s.loadAll)
   const loaded = useWorkspaceStore((s) => s.loaded)
+  const toggleDetailBar = useWorkspaceStore((s) => s.toggleDetailBar)
   const nodes = useFlowStore((s) => s.nodes)
   const edges = useFlowStore((s) => s.edges)
   const onNodesChange = useFlowStore((s) => s.onNodesChange)
@@ -118,10 +120,20 @@ export default function App() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeDoubleClick={(_, node) => {
+              setSelection({ nodeIds: [node.id], edgeIds: [] })
+              toggleDetailBar(true)
+            }}
+            onEdgeDoubleClick={(_, edge) => {
+              setSelection({ nodeIds: [], edgeIds: [edge.id] })
+              toggleDetailBar(true)
+            }}
+            onPaneClick={() => toggleDetailBar(false)}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onDragOver={onDragOver}
             onDrop={onDrop}
+            connectionRadius={28}
             selectionOnDrag
             panOnDrag={[1, 2]}
             selectionMode={SelectionMode.Partial}
@@ -139,7 +151,7 @@ export default function App() {
             </Panel>
             </ReactFlow>
           </div>
-          <DetailBar />
+          {showDetailBar ? <DetailBar /> : null}
         </div>
       </div>
     </div>

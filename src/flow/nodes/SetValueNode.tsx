@@ -9,6 +9,7 @@ export default function SetValueNode(props: any) {
       {...props}
       className="rounded-xl border-2 border-fuchsia-400/70 bg-fuchsia-50/90"
       data={{ ...data, label: data?.label ?? 'Set Value' }}
+      ports={{ top: 'both', right: 'both', bottom: 'both', left: 'both' }}
     >
       <div className="text-fuchsia-700 font-semibold flex items-center gap-2">
         <Upload className="h-4 w-4" />
