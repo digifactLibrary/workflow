@@ -3,7 +3,8 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Separator } from './ui/separator'
 import { useWorkspaceStore } from '../state/workspaceStore'
-import { ExternalLink, FolderPlus, Pencil, Trash2, Copy } from 'lucide-react'
+import { ExternalLink, FolderPlus, Pencil, Trash2, Copy, LogOut } from 'lucide-react'
+import { useAuthStore } from '../state/authStore'
 
 export function Dashboard() {
   const diagrams = useWorkspaceStore((s) => s.diagrams)
@@ -13,6 +14,7 @@ export function Dashboard() {
   const rename = useWorkspaceStore((s) => s.rename)
   const duplicate = useWorkspaceStore((s) => s.duplicate)
   const remove = useWorkspaceStore((s) => s.remove)
+  const logout = useAuthStore((s) => s.logout)
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')

@@ -2,11 +2,12 @@ import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useFlowStore } from '../state/flowStore'
-import { Undo2, Redo2, Upload, Download, LayoutGrid, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Undo2, Redo2, Upload, Download, LayoutGrid, PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-react'
 import { Switch } from './ui/switch'
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { Input } from './ui/input'
+import { useAuthStore } from '../state/authStore'
 
 export function Topbar() {
   const toggleDashboard = useWorkspaceStore((s) => s.toggleDashboard)
@@ -22,6 +23,7 @@ export function Topbar() {
   const setAutosave = useFlowStore((s) => s.setAutosave)
   const nodes = useFlowStore((s) => s.nodes)
   const edges = useFlowStore((s) => s.edges)
+  const logout = useAuthStore((s) => s.logout)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
@@ -134,6 +136,10 @@ export function Topbar() {
           <Separator className="mx-2 h-6 w-px" />
           <span className="text-muted-foreground">Autosave</span>
           <Switch checked={autosave} onCheckedChange={(v) => setAutosave(!!v)} />
+          <Separator className="mx-2 h-6 w-px" />
+          <Button onClick={logout} size="sm" variant="outline" title="Đăng xuất">
+            <LogOut className="mr-2 h-4 w-4" /> Đăng xuất
+          </Button>
         </div>
       </div>
     </div>

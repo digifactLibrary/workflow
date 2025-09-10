@@ -38,7 +38,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   loaded: false,
 
   loadAll: async () => {
-    const res = await fetch('/api/diagrams')
+    const res = await fetch('/api/diagrams', { credentials: 'include' })
     const list = (await res.json()) as Array<{ id: string; name: string; createdAt: string | number; updatedAt: string | number }>
     const diagrams: Record<string, DiagramMeta> = {}
     const order: string[] = []
@@ -55,6 +55,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     const res = await fetch('/api/diagrams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ name, data: initial }),
     })
     if (!res.ok) throw new Error('Create failed')
@@ -72,7 +73,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   },
 
   open: async (id) => {
-    const res = await fetch(`/api/diagrams/${id}`)
+    const res = await fetch(`/api/diagrams/${id}`, { credentials: 'include' })
     if (!res.ok) return
     const d = (await res.json()) as { id: string; name: string; createdAt: string | number; updatedAt: string | number; data: DiagramData }
     const createdAt = typeof d.createdAt === 'string' ? Date.parse(d.createdAt) : (d.createdAt as number)
@@ -89,6 +90,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     const res = await fetch(`/api/diagrams/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ name }),
     })
     if (!res.ok) return
@@ -102,7 +104,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   },
 
   remove: async (id) => {
-    const res = await fetch(`/api/diagrams/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/diagrams/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) return
     set((s) => {
       if (!s.diagrams[id]) return {}
@@ -120,7 +122,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   },
 
   duplicate: async (id) => {
-    const srcRes = await fetch(`/api/diagrams/${id}`)
+    const srcRes = await fetch(`/api/diagrams/${id}`, { credentials: 'include' })
     if (!srcRes.ok) return ''
     const src = (await srcRes.json()) as { name: string; data: DiagramData }
     const newName = `${src.name} - bản sao`
@@ -134,6 +136,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     const res = await fetch(`/api/diagrams/${activeId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ data: { nodes, edges } }),
     })
     if (!res.ok) return

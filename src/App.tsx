@@ -32,6 +32,8 @@ import { DetailBar } from './components/DetailBar'
 import { useFlowStore } from './state/flowStore'
 import { useWorkspaceStore } from './state/workspaceStore'
 import { Dashboard } from './components/Dashboard'
+import { useAuthStore } from './state/authStore'
+import Login from './components/Login'
 
 const nodeTypes: NodeTypes = {
   start: StartNode,
@@ -51,6 +53,8 @@ const nodeTypes: NodeTypes = {
 const edgeTypes: EdgeTypes = { dir: DirectionEdge }
 
 export default function App() {
+  const isAuthed = useAuthStore((s) => s.isAuthenticated)
+  const bootstrapAuth = useAuthStore((s) => s.bootstrap)
   const showDashboard = useWorkspaceStore((s) => s.ui.showDashboard)
   const showPalette = useWorkspaceStore((s) => s.ui.showPalette)
   const showDetailBar = useWorkspaceStore((s) => s.ui.showDetailBar)
@@ -92,16 +96,27 @@ export default function App() {
 
   // Initial load of diagrams from DB
   useEffect(() => {
+    // Bootstrap auth session once
+    bootstrapAuth()
+  }, [bootstrapAuth])
+
+  // Initial load of diagrams from DB once authed
+  useEffect(() => {
+    if (!isAuthed) return
     if (!loaded) {
       loadAll()
     }
-  }, [loaded, loadAll])
+  }, [isAuthed, loaded, loadAll])
 
   // Sync to workspace when autosave is on and active diagram exists
   useEffect(() => {
     if (!autosave || !activeId) return
     saveActiveFromFlow()
   }, [nodes, edges, autosave, activeId, saveActiveFromFlow])
+
+  if (!isAuthed) {
+    return <Login />
+  }
 
   if (showDashboard || !activeId) {
     return <Dashboard />
