@@ -53,8 +53,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="source"
                   position={Position.Top}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={true}
-                  isConnectableEnd={p.top === 'both'}
+                  isConnectableStart
+                  isConnectableEnd={false}
                 />
               )}
               {(p.top === 'target' || p.top === 'both') && (
@@ -63,9 +63,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="target"
                   position={Position.Top}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={p.top === 'both'}
-                  isConnectableEnd={true}
-                  style={p.top === 'both' ? { zIndex: 5 } : undefined}
+                  isConnectableStart={false}
+                  isConnectableEnd
                 />
               )}
             </>
@@ -80,8 +79,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="source"
                   position={Position.Right}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={true}
-                  isConnectableEnd={p.right === 'both'}
+                  isConnectableStart
+                  isConnectableEnd={false}
                 />
               )}
               {(p.right === 'target' || p.right === 'both') && (
@@ -90,9 +89,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="target"
                   position={Position.Right}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={p.right === 'both'}
-                  isConnectableEnd={true}
-                  style={p.right === 'both' ? { zIndex: 5 } : undefined}
+                  isConnectableStart={false}
+                  isConnectableEnd
                 />
               )}
             </>
@@ -107,8 +105,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="source"
                   position={Position.Bottom}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={true}
-                  isConnectableEnd={p.bottom === 'both'}
+                  isConnectableStart
+                  isConnectableEnd={false}
                 />
               )}
               {(p.bottom === 'target' || p.bottom === 'both') && (
@@ -117,9 +115,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="target"
                   position={Position.Bottom}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={p.bottom === 'both'}
-                  isConnectableEnd={true}
-                  style={p.bottom === 'both' ? { zIndex: 5 } : undefined}
+                  isConnectableStart={false}
+                  isConnectableEnd
                 />
               )}
             </>
@@ -134,8 +131,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="source"
                   position={Position.Left}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={true}
-                  isConnectableEnd={p.left === 'both'}
+                  isConnectableStart
+                  isConnectableEnd={false}
                 />
               )}
               {(p.left === 'target' || p.left === 'both') && (
@@ -144,9 +141,8 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
                   type="target"
                   position={Position.Left}
                   className="w-4 h-4 bg-slate-900 rounded-full border-2 border-white cursor-crosshair"
-                  isConnectableStart={p.left === 'both'}
-                  isConnectableEnd={true}
-                  style={p.left === 'both' ? { zIndex: 5 } : undefined}
+                  isConnectableStart={false}
+                  isConnectableEnd
                 />
               )}
             </>

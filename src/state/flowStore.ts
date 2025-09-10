@@ -57,11 +57,22 @@ export const useFlowStore = create<FlowState>()(
         }
         const next = {
           nodes: d.nodes,
-          edges: (d.edges || []).map((e: any) => ({
-            ...e,
-            sourceHandle: migrateHandle(e.sourceHandle, 'source'),
-            targetHandle: migrateHandle(e.targetHandle, 'target'),
-          })),
+          edges: (d.edges || []).map((edgeRaw: any) => {
+            const e = { ...edgeRaw }
+            e.sourceHandle = migrateHandle(e.sourceHandle, 'source')
+            e.targetHandle = migrateHandle(e.targetHandle, 'target')
+            const sh = String(e.sourceHandle || '')
+            const th = String(e.targetHandle || '')
+            if (sh.startsWith('t-') || th.startsWith('s-')) {
+              const s = e.source
+              const sh2 = e.sourceHandle
+              e.source = e.target
+              e.sourceHandle = e.targetHandle
+              e.target = s
+              e.targetHandle = sh2
+            }
+            return e
+          }),
         }
         if (push) s.history.past.push({ nodes: s.nodes, edges: s.edges })
         s.history.future = []
@@ -127,8 +138,18 @@ export const useFlowStore = create<FlowState>()(
       }),
 
       onConnect: (connection) => set((s) => {
-        // Respect the exact handles the user selected.
-        const src = s.nodes.find((n) => n.id === connection.source)
+        // Normalize: if user starts from a target handle or drops on a source handle,
+        // swap so edges always go source(s-*) -> target(t-*)
+        const normalize = (c: any) => {
+          const sh = String(c?.sourceHandle || '')
+          const th = String(c?.targetHandle || '')
+          if (sh.startsWith('t-') || th.startsWith('s-')) {
+            return { ...c, source: c.target, target: c.source, sourceHandle: c.targetHandle, targetHandle: c.sourceHandle }
+          }
+          return c
+        }
+        const conn = normalize(connection)
+        const src = s.nodes.find((n) => n.id === conn.source)
         let edgeData: any = {}
         let style: any = {}
         if (src?.type === 'decision') {
@@ -159,8 +180,8 @@ export const useFlowStore = create<FlowState>()(
           edgeData = { ...(edgeData || {}), label: String(nextIndex), index: nextIndex }
         }
         const edge: Edge = {
-          ...connection,
-          id: `${connection.source}-${connection.target}-${Date.now()}`,
+          ...conn,
+          id: `${conn.source}-${conn.target}-${Date.now()}`,
           type: 'dir',
           animated: true,
           markerEnd: { type: MarkerType.ArrowClosed },
