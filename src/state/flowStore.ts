@@ -112,26 +112,7 @@ export const useFlowStore = create<FlowState>()(
 
       onEdgesChange: (changes) => set((s) => {
         const prev = { nodes: s.nodes, edges: s.edges }
-        let edges = applyEdgeChanges(changes as any, s.edges as any) as unknown as AlgoEdge[]
-        // Renumber outgoing edges for each condition node: 1,2,3,...
-        const conditionIds = new Set(s.nodes.filter((n) => n.type === 'condition').map((n) => n.id))
-        if (conditionIds.size > 0) {
-          const next = edges.map((e) => ({ ...e, data: { ...((e.data as any) || {}) } })) as any[]
-          for (const cid of conditionIds) {
-            const outs = next.filter((e) => e.source === cid)
-            outs.sort((a, b) => {
-              const ai = Number(a.data?.index ?? Number.MAX_SAFE_INTEGER)
-              const bi = Number(b.data?.index ?? Number.MAX_SAFE_INTEGER)
-              if (ai !== bi) return ai - bi
-              return String(a.id).localeCompare(String(b.id))
-            })
-            outs.forEach((e, idx) => {
-              e.data.label = String(idx + 1)
-              e.data.index = idx + 1
-            })
-          }
-          edges = next as unknown as AlgoEdge[]
-        }
+        const edges = applyEdgeChanges(changes as any, s.edges as any) as unknown as AlgoEdge[]
         s.history.past.push(prev)
         s.history.future = []
         return { edges }
@@ -173,11 +154,6 @@ export const useFlowStore = create<FlowState>()(
               style = { stroke: '#ef4444' }
             }
           }
-        }
-        if (src?.type === 'condition') {
-          const outgoing = s.edges.filter((e) => e.source === src.id)
-          const nextIndex = outgoing.length + 1
-          edgeData = { ...(edgeData || {}), label: String(nextIndex), index: nextIndex }
         }
         const edge: Edge = {
           ...conn,
