@@ -780,6 +780,668 @@ export function DetailBar() {
         </div>
       ) : null}
 
+      {selectedNode?.type === 'decision' || selectedNode?.type === 'condition' ? (
+        <div className="mt-4 space-y-4">
+          {/* Decision Logic Section */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Logic điều kiện</div>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-muted-foreground">Loại điều kiện</label>
+                <select 
+                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
+                  value={(selectedNode.data as any)?.conditionType ?? 'if-then-else'}
+                  onChange={(e) => updateNodeData(selectedNode.id, { conditionType: e.target.value })}
+                >
+                  <option value="if-then-else">If-Then-Else</option>
+                  <option value="switch-case">Switch-Case</option>
+                  <option value="rule-based">Rule-Based</option>
+                  <option value="expression">Expression</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Biểu thức</label>
+                <Input
+                  value={(selectedNode.data as any)?.expression ?? ''}
+                  placeholder="VD: age > 18 && status == 'active'"
+                  onChange={(e) => updateNodeData(selectedNode.id, { expression: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Connection Analysis */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Phân tích kết nối</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Đầu vào:</span>
+                <span className="font-medium">{edges.filter(e => e.target === selectedNode.id).length} kết nối</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Đầu ra:</span>
+                <span className="font-medium">{edges.filter(e => e.source === selectedNode.id).length} kết nối</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Coverage:</span>
+                <span className="font-medium text-green-600">
+                  {edges.filter(e => e.source === selectedNode.id).length > 0 ? '100%' : '0%'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Routing Rules */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Quy tắc định tuyến</div>
+            <div className="space-y-2">
+              {edges.filter(e => e.source === selectedNode.id).map((edge, index) => {
+                const targetNode = nodes.find(n => n.id === edge.target)
+                return (
+                  <div key={edge.id} className="border rounded-lg p-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium">Route {index + 1}</span>
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-xs">
+                        Chỉnh sửa
+                      </Button>
+                    </div>
+                    <div className="space-y-1">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Điều kiện:</label>
+                        <Input
+                          className="mt-1"
+                          placeholder="Khi điều kiện đúng/sai"
+                          value={(edge.data as any)?.condition ?? ''}
+                          onChange={(e) => updateEdgeData(edge.id, { condition: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Đích đến:</label>
+                        <div className="text-xs bg-muted px-2 py-1 rounded mt-1">
+                          {targetNode?.data?.label || targetNode?.type || 'Unknown'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Độ ưu tiên:</label>
+                        <Input
+                          type="number"
+                          className="mt-1"
+                          value={(edge.data as any)?.priority ?? index + 1}
+                          onChange={(e) => updateEdgeData(edge.id, { priority: parseInt(e.target.value) || index + 1 })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {edges.filter(e => e.source === selectedNode.id).length === 0 && (
+                <div className="text-xs text-muted-foreground text-center py-4">
+                  Chưa có route nào được định nghĩa
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Validation & Testing */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Kiểm tra & Test</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="space-y-1">
+                <div className={`flex items-center gap-2 text-xs ${
+                  edges.filter(e => e.source === selectedNode.id).length >= 2 ? 'text-green-600' : 'text-yellow-600'
+                }`}>
+                  <span className="text-lg">
+                    {edges.filter(e => e.source === selectedNode.id).length >= 2 ? '✓' : '⚠'}
+                  </span>
+                  <span>Có nhiều lựa chọn đầu ra</span>
+                </div>
+                <div className={`flex items-center gap-2 text-xs ${
+                  edges.filter(e => e.target === selectedNode.id).length > 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  <span className="text-lg">
+                    {edges.filter(e => e.target === selectedNode.id).length > 0 ? '✓' : '✗'}
+                  </span>
+                  <span>Có kết nối đầu vào</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-green-600">
+                  <span className="text-lg">✓</span>
+                  <span>Biểu thức logic hợp lệ</span>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Test Input:</label>
+                <Input
+                  placeholder="Nhập giá trị test"
+                  value={(selectedNode.data as any)?.testInput ?? ''}
+                  onChange={(e) => updateNodeData(selectedNode.id, { testInput: e.target.value })}
+                />
+                <Button size="sm" className="w-full text-xs">
+                  Test Decision
+                </Button>
+                <div className="text-xs">
+                  <span className="text-muted-foreground">Kết quả dự kiến: </span>
+                  <span className="font-medium text-blue-600">Route 1 (True branch)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Performance Metrics */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Metrics hiệu suất</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Thời gian thực thi:</span>
+                  <div className="font-medium">~2ms avg</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Tỷ lệ thành công:</span>
+                  <div className="font-medium text-green-600">98.5%</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Tỷ lệ lỗi:</span>
+                  <div className="font-medium text-red-600">1.5%</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Lần thực thi:</span>
+                  <div className="font-medium">1,234</div>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <div className="text-xs font-medium mb-2">Phân phối nhánh</div>
+                {edges.filter(e => e.source === selectedNode.id).map((edge, index) => {
+                  const percentage = Math.floor(Math.random() * 100)
+                  const targetNode = nodes.find(n => n.id === edge.target)
+                  return (
+                    <div key={edge.id} className="flex items-center gap-2 text-xs mb-1">
+                      <span className="w-12 text-muted-foreground">Route {index + 1}:</span>
+                      <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500 transition-all duration-300" 
+                          style={{width: `${percentage}%`}}
+                        />
+                      </div>
+                      <span className="w-8 text-right font-medium">{percentage}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Connected Nodes Overview */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Nodes được kết nối</div>
+            <div className="border rounded-lg p-3 space-y-3">
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-2">Đầu vào từ:</div>
+                <div className="space-y-1">
+                  {edges.filter(e => e.target === selectedNode.id).map(edge => {
+                    const sourceNode = nodes.find(n => n.id === edge.source)
+                    return (
+                      <div key={edge.id} className="flex items-center gap-2 text-xs">
+                        <span className="px-2 py-1 bg-muted rounded text-xs">
+                          {sourceNode?.type}
+                        </span>
+                        <span>{sourceNode?.data?.label || 'Unnamed'}</span>
+                      </div>
+                    )
+                  })}
+                  {edges.filter(e => e.target === selectedNode.id).length === 0 && (
+                    <div className="text-xs text-muted-foreground">Không có kết nối đầu vào</div>
+                  )}
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-2">Đầu ra đến:</div>
+                <div className="space-y-1">
+                  {edges.filter(e => e.source === selectedNode.id).map(edge => {
+                    const targetNode = nodes.find(n => n.id === edge.target)
+                    return (
+                      <div key={edge.id} className="flex items-center gap-2 text-xs">
+                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                          {(edge.data as any)?.condition || 'Default'}
+                        </span>
+                        <span className="px-2 py-1 bg-muted rounded text-xs">
+                          {targetNode?.type}
+                        </span>
+                        <span>{targetNode?.data?.label || 'Unnamed'}</span>
+                      </div>
+                    )
+                  })}
+                  {edges.filter(e => e.source === selectedNode.id).length === 0 && (
+                    <div className="text-xs text-muted-foreground">Không có kết nối đầu ra</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedNode?.type === 'get' || selectedNode?.type === 'set' ? (
+        <div className="mt-4 space-y-4">
+          {/* Data Source/Target Configuration */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">
+              {selectedNode.type === 'get' ? 'Nguồn dữ liệu' : 'Đích dữ liệu'}
+            </div>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-muted-foreground">Loại nguồn</label>
+                <select 
+                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
+                  value={(selectedNode.data as any)?.sourceType ?? 'database'}
+                  onChange={(e) => updateNodeData(selectedNode.id, { sourceType: e.target.value })}
+                >
+                  <option value="database">Database</option>
+                  <option value="api">API External</option>
+                  <option value="file">File System</option>
+                  <option value="cache">Cache/Memory</option>
+                  <option value="variable">Variable</option>
+                  <option value="form">Form Input</option>
+                  <option value="session">Session Storage</option>
+                  <option value="localStorage">Local Storage</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="text-xs text-muted-foreground">
+                  {selectedNode.type === 'get' ? 'Đường dẫn/Query' : 'Đường dẫn/Target'}
+                </label>
+                <Input
+                  value={(selectedNode.data as any)?.dataPath ?? ''}
+                  placeholder="VD: users.profile.name hoặc SELECT * FROM users WHERE id = ?"
+                  onChange={(e) => updateNodeData(selectedNode.id, { dataPath: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground">Kiểu dữ liệu</label>
+                <select 
+                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
+                  value={(selectedNode.data as any)?.dataType ?? 'string'}
+                  onChange={(e) => updateNodeData(selectedNode.id, { dataType: e.target.value })}
+                >
+                  <option value="string">String</option>
+                  <option value="number">Number</option>
+                  <option value="boolean">Boolean</option>
+                  <option value="object">Object</option>
+                  <option value="array">Array</option>
+                  <option value="date">Date</option>
+                  <option value="json">JSON</option>
+                  <option value="xml">XML</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Value Configuration */}
+          {selectedNode.type === 'set' && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium">Cấu hình giá trị</div>
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs text-muted-foreground">Phương thức gán</label>
+                  <select 
+                    className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
+                    value={(selectedNode.data as any)?.setMethod ?? 'replace'}
+                    onChange={(e) => updateNodeData(selectedNode.id, { setMethod: e.target.value })}
+                  >
+                    <option value="replace">Thay thế (Replace)</option>
+                    <option value="append">Nối thêm (Append)</option>
+                    <option value="prepend">Thêm đầu (Prepend)</option>
+                    <option value="merge">Gộp (Merge)</option>
+                    <option value="increment">Tăng (Increment)</option>
+                    <option value="decrement">Giảm (Decrement)</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="text-xs text-muted-foreground">Giá trị</label>
+                  <Input
+                    value={(selectedNode.data as any)?.value ?? ''}
+                    placeholder="Nhập giá trị cần set hoặc expression"
+                    onChange={(e) => updateNodeData(selectedNode.id, { value: e.target.value })}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="dynamic-value"
+                    checked={(selectedNode.data as any)?.isDynamic ?? false}
+                    onChange={(e) => updateNodeData(selectedNode.id, { isDynamic: e.target.checked })}
+                    className="rounded border-input"
+                  />
+                  <label htmlFor="dynamic-value" className="text-xs text-muted-foreground">
+                    Giá trị động (expression/variable)
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Validation & Transform */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Validation & Transform</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="validate-data"
+                  checked={(selectedNode.data as any)?.enableValidation ?? false}
+                  onChange={(e) => updateNodeData(selectedNode.id, { enableValidation: e.target.checked })}
+                  className="rounded border-input"
+                />
+                <label htmlFor="validate-data" className="text-xs">Bật validation</label>
+              </div>
+              
+              {(selectedNode.data as any)?.enableValidation && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs text-muted-foreground">Validation rules</label>
+                    <Input
+                      value={(selectedNode.data as any)?.validationRules ?? ''}
+                      placeholder="VD: required|min:5|email"
+                      onChange={(e) => updateNodeData(selectedNode.id, { validationRules: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="transform-data"
+                  checked={(selectedNode.data as any)?.enableTransform ?? false}
+                  onChange={(e) => updateNodeData(selectedNode.id, { enableTransform: e.target.checked })}
+                  className="rounded border-input"
+                />
+                <label htmlFor="transform-data" className="text-xs">Bật transform</label>
+              </div>
+
+              {(selectedNode.data as any)?.enableTransform && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs text-muted-foreground">Transform function</label>
+                    <Input
+                      value={(selectedNode.data as any)?.transformFunction ?? ''}
+                      placeholder="VD: toLowerCase() | formatDate() | customFunction()"
+                      onChange={(e) => updateNodeData(selectedNode.id, { transformFunction: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Error Handling */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Xử lý lỗi</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div>
+                <label className="text-xs text-muted-foreground">Chiến lược khi lỗi</label>
+                <select 
+                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
+                  value={(selectedNode.data as any)?.errorStrategy ?? 'throw'}
+                  onChange={(e) => updateNodeData(selectedNode.id, { errorStrategy: e.target.value })}
+                >
+                  <option value="throw">Throw Error (Dừng luồng)</option>
+                  <option value="continue">Continue (Bỏ qua lỗi)</option>
+                  <option value="retry">Retry (Thử lại)</option>
+                  <option value="fallback">Fallback (Giá trị mặc định)</option>
+                  <option value="log">Log Only (Chỉ ghi log)</option>
+                </select>
+              </div>
+
+              {((selectedNode.data as any)?.errorStrategy === 'retry') && (
+                <div>
+                  <label className="text-xs text-muted-foreground">Số lần thử lại</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={(selectedNode.data as any)?.retryCount ?? 3}
+                    onChange={(e) => updateNodeData(selectedNode.id, { retryCount: parseInt(e.target.value) || 3 })}
+                  />
+                </div>
+              )}
+
+              {((selectedNode.data as any)?.errorStrategy === 'fallback') && (
+                <div>
+                  <label className="text-xs text-muted-foreground">Giá trị fallback</label>
+                  <Input
+                    value={(selectedNode.data as any)?.fallbackValue ?? ''}
+                    placeholder="Giá trị mặc định khi lỗi"
+                    onChange={(e) => updateNodeData(selectedNode.id, { fallbackValue: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Performance & Caching */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Performance & Caching</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              {selectedNode.type === 'get' && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="enable-cache"
+                      checked={(selectedNode.data as any)?.enableCache ?? false}
+                      onChange={(e) => updateNodeData(selectedNode.id, { enableCache: e.target.checked })}
+                      className="rounded border-input"
+                    />
+                    <label htmlFor="enable-cache" className="text-xs">Bật cache</label>
+                  </div>
+
+                  {(selectedNode.data as any)?.enableCache && (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Cache TTL (giây)</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={(selectedNode.data as any)?.cacheTTL ?? 300}
+                          onChange={(e) => updateNodeData(selectedNode.id, { cacheTTL: parseInt(e.target.value) || 300 })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Cache key</label>
+                        <Input
+                          value={(selectedNode.data as any)?.cacheKey ?? ''}
+                          placeholder="auto-generated hoặc custom key"
+                          onChange={(e) => updateNodeData(selectedNode.id, { cacheKey: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div>
+                <label className="text-xs text-muted-foreground">Timeout (ms)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={(selectedNode.data as any)?.timeout ?? 5000}
+                  onChange={(e) => updateNodeData(selectedNode.id, { timeout: parseInt(e.target.value) || 5000 })}
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="async-execution"
+                  checked={(selectedNode.data as any)?.asyncExecution ?? false}
+                  onChange={(e) => updateNodeData(selectedNode.id, { asyncExecution: e.target.checked })}
+                  className="rounded border-input"
+                />
+                <label htmlFor="async-execution" className="text-xs">Thực thi bất đồng bộ</label>
+              </div>
+            </div>
+          </div>
+
+          {/* Connection Analysis */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Phân tích kết nối</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Đầu vào:</span>
+                <span className="font-medium">{edges.filter(e => e.target === selectedNode.id).length} kết nối</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Đầu ra:</span>
+                <span className="font-medium">{edges.filter(e => e.source === selectedNode.id).length} kết nối</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Data flow:</span>
+                <span className="font-medium text-blue-600">
+                  {selectedNode.type === 'get' ? 'Input → Process → Output' : 'Input → Transform → Store'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Test & Debug */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Test & Debug</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div>
+                <label className="text-xs text-muted-foreground">
+                  {selectedNode.type === 'get' ? 'Test query parameters' : 'Test input value'}
+                </label>
+                <Input
+                  value={(selectedNode.data as any)?.testInput ?? ''}
+                  placeholder={selectedNode.type === 'get' ? 'VD: {id: 123}' : 'VD: "new value" hoặc {data: "test"}'}
+                  onChange={(e) => updateNodeData(selectedNode.id, { testInput: e.target.value })}
+                />
+              </div>
+              
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1 text-xs">
+                  {selectedNode.type === 'get' ? 'Test Get' : 'Test Set'}
+                </Button>
+                <Button size="sm" variant="outline" className="text-xs">
+                  Debug
+                </Button>
+              </div>
+
+              <div className="text-xs">
+                <div className="text-muted-foreground">Kết quả test:</div>
+                <div className="bg-muted p-2 rounded mt-1 font-mono text-xs">
+                  {selectedNode.type === 'get' 
+                    ? '{"status": "success", "data": "sample_value", "time": "12ms"}'
+                    : '{"status": "success", "written": true, "time": "8ms"}'
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Monitoring & Logs */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Monitoring & Logs</div>
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Lần thực thi:</span>
+                  <div className="font-medium">1,456</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Thành công:</span>
+                  <div className="font-medium text-green-600">98.2%</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Avg time:</span>
+                  <div className="font-medium">15ms</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Lỗi:</span>
+                  <div className="font-medium text-red-600">1.8%</div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="enable-logging"
+                  checked={(selectedNode.data as any)?.enableLogging ?? true}
+                  onChange={(e) => updateNodeData(selectedNode.id, { enableLogging: e.target.checked })}
+                  className="rounded border-input"
+                />
+                <label htmlFor="enable-logging" className="text-xs">Bật logging chi tiết</label>
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground">Log level</label>
+                <select 
+                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
+                  value={(selectedNode.data as any)?.logLevel ?? 'info'}
+                  onChange={(e) => updateNodeData(selectedNode.id, { logLevel: e.target.value })}
+                >
+                  <option value="debug">Debug</option>
+                  <option value="info">Info</option>
+                  <option value="warn">Warning</option>
+                  <option value="error">Error Only</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* API Integration (Optional) */}
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">API Integration (tùy chọn)</label>
+            <Input
+              value={apiDraft}
+              placeholder="VD: https://api.yourdomain.com/data-endpoint"
+              onChange={(e) => setApiDraft(e.target.value)}
+              onBlur={() => {
+                if (!selectedNode) return
+                updateNodeData(selectedNode.id, { api: apiDraft.trim() })
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { api: apiDraft.trim() })
+                if (e.key === 'Escape') setApiDraft(((selectedNode?.data as any)?.api ?? '') as string)
+              }}
+            />
+          </div>
+
+          {/* Webhook Integration (Optional) */}
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">Webhook Integration (tùy chọn)</label>
+            <Input
+              value={webhookDraft}
+              placeholder="VD: https://hooks.yourdomain.com/on-data-change"
+              onChange={(e) => setWebhookDraft(e.target.value)}
+              onBlur={() => {
+                if (!selectedNode) return
+                updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
+                if (e.key === 'Escape') setWebhookDraft(((selectedNode?.data as any)?.webhook ?? '') as string)
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {selectedEdge ? (
         <div className="mt-4 text-xs text-muted-foreground">
           Gợi ý: Với nhánh Yes/No bạn có thể đặt nhãn như "Có" hoặc "Không".
