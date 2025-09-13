@@ -28,8 +28,11 @@ const db = new Pool(
 )
 
 async function ensureSchema() {
+  // Create schema section0 if not exists
+  await db.query('CREATE SCHEMA IF NOT EXISTS section0;')
+  
   await db.query(`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS section0.cr07Ausers (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
@@ -39,7 +42,7 @@ async function ensureSchema() {
     );
   `)
   await db.query(`
-    CREATE TABLE IF NOT EXISTS diagrams (
+    CREATE TABLE IF NOT EXISTS section0.cr07Bdiagrams (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -51,7 +54,7 @@ async function ensureSchema() {
   
   // New tables for objects and connections
   await db.query(`
-    CREATE TABLE IF NOT EXISTS diagram_objects (
+    CREATE TABLE IF NOT EXISTS section0.cr07Cdiagram_objects (
       id TEXT PRIMARY KEY,
       diagram_id TEXT NOT NULL,
       node_id TEXT NOT NULL,
@@ -63,12 +66,12 @@ async function ensureSchema() {
       data JSONB NOT NULL DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      FOREIGN KEY (diagram_id) REFERENCES diagrams(id) ON DELETE CASCADE
+      FOREIGN KEY (diagram_id) REFERENCES section0.cr07Bdiagrams(id) ON DELETE CASCADE
     );
   `)
   
   await db.query(`
-    CREATE TABLE IF NOT EXISTS diagram_connections (
+    CREATE TABLE IF NOT EXISTS section0.cr07Ddiagram_connections (
       id TEXT PRIMARY KEY,
       diagram_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,
@@ -82,24 +85,24 @@ async function ensureSchema() {
       style JSONB DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      FOREIGN KEY (diagram_id) REFERENCES diagrams(id) ON DELETE CASCADE
+      FOREIGN KEY (diagram_id) REFERENCES section0.cr07Bdiagrams(id) ON DELETE CASCADE
     );
   `)
   
   // Create indexes
-  await db.query('CREATE INDEX IF NOT EXISTS diagram_objects_diagram_id_idx ON diagram_objects(diagram_id)')
-  await db.query('CREATE INDEX IF NOT EXISTS diagram_objects_node_id_idx ON diagram_objects(node_id)')
-  await db.query('CREATE INDEX IF NOT EXISTS diagram_connections_diagram_id_idx ON diagram_connections(diagram_id)')
-  await db.query('CREATE INDEX IF NOT EXISTS diagram_connections_edge_id_idx ON diagram_connections(edge_id)')
-  await db.query('CREATE INDEX IF NOT EXISTS diagram_connections_source_target_idx ON diagram_connections(source_node_id, target_node_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr07Cdiagram_objects_diagram_id_idx ON section0.cr07Cdiagram_objects(diagram_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr07Cdiagram_objects_node_id_idx ON section0.cr07Cdiagram_objects(node_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr07Ddiagram_connections_diagram_id_idx ON section0.cr07Ddiagram_connections(diagram_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr07Ddiagram_connections_edge_id_idx ON section0.cr07Ddiagram_connections(edge_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr07Ddiagram_connections_source_target_idx ON section0.cr07Ddiagram_connections(source_node_id, target_node_id)')
   
   // Unique constraints
-  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS diagram_objects_unique_node_per_diagram ON diagram_objects(diagram_id, node_id)')
-  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS diagram_connections_unique_edge_per_diagram ON diagram_connections(diagram_id, edge_id)')
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS cr07Cdiagram_objects_unique_node_per_diagram ON section0.cr07Cdiagram_objects(diagram_id, node_id)')
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS cr07Ddiagram_connections_unique_edge_per_diagram ON section0.cr07Ddiagram_connections(diagram_id, edge_id)')
   
   // In case the table existed before owner_id field was introduced
-  await db.query('ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS owner_id TEXT')
-  await db.query('CREATE INDEX IF NOT EXISTS diagrams_owner_id_idx ON diagrams(owner_id)')
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS owner_id TEXT')
+  await db.query('CREATE INDEX IF NOT EXISTS cr07Bdiagrams_owner_id_idx ON section0.cr07Bdiagrams(owner_id)')
   
   // Auto-migrate existing data from JSON format to separate tables
   await migrateLegacyData()
@@ -113,9 +116,9 @@ async function migrateLegacyData() {
     // Check if there are diagrams with data but no corresponding objects/connections
     const legacyDiagrams = await db.query(`
       SELECT d.id, d.data 
-      FROM diagrams d 
+      FROM section0.cr07Bdiagrams d 
       WHERE d.data IS NOT NULL 
-      AND NOT EXISTS (SELECT 1 FROM diagram_objects WHERE diagram_id = d.id)
+      AND NOT EXISTS (SELECT 1 FROM section0.cr07Cdiagram_objects WHERE diagram_id = d.id)
     `)
     
     if (legacyDiagrams.rowCount === 0) {
@@ -141,15 +144,15 @@ async function migrateSingleDiagram(diagramId, data) {
   if (!data || typeof data !== 'object') return
   
   // Clear any existing records (in case of re-migration)
-  await db.query('DELETE FROM diagram_objects WHERE diagram_id = $1', [diagramId])
-  await db.query('DELETE FROM diagram_connections WHERE diagram_id = $1', [diagramId])
+  await db.query('DELETE FROM section0.cr07Cdiagram_objects WHERE diagram_id = $1', [diagramId])
+  await db.query('DELETE FROM section0.cr07Ddiagram_connections WHERE diagram_id = $1', [diagramId])
   
   // Migrate nodes to diagram_objects
   if (data.nodes && Array.isArray(data.nodes)) {
     for (const node of data.nodes) {
       const objId = genId('obj')
       await db.query(`
-        INSERT INTO diagram_objects (
+        INSERT INTO section0.cr07Cdiagram_objects (
           id, diagram_id, node_id, node_type, 
           position_x, position_y, width, height, data
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -172,7 +175,7 @@ async function migrateSingleDiagram(diagramId, data) {
     for (const edge of data.edges) {
       const connId = genId('conn')
       await db.query(`
-        INSERT INTO diagram_connections (
+        INSERT INTO section0.cr07Ddiagram_connections (
           id, diagram_id, edge_id, source_node_id, target_node_id,
           source_handle, target_handle, edge_type, animated, data, style
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -198,27 +201,27 @@ async function migrateSingleDiagram(diagramId, data) {
 // Helper function to save diagram data to both formats (for compatibility)
 async function saveDiagramData(diagramId, data, ownerId) {
   // Verify ownership
-  const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id = $1 AND owner_id = $2', [diagramId, ownerId])
+  const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2', [diagramId, ownerId])
   if (diagramCheck.rowCount === 0) {
     throw new Error('Diagram not found or access denied')
   }
   
   // Clear existing objects and connections
-  await db.query('DELETE FROM diagram_objects WHERE diagram_id = $1', [diagramId])
-  await db.query('DELETE FROM diagram_connections WHERE diagram_id = $1', [diagramId])
+  await db.query('DELETE FROM section0.cr07Cdiagram_objects WHERE diagram_id = $1', [diagramId])
+  await db.query('DELETE FROM section0.cr07Ddiagram_connections WHERE diagram_id = $1', [diagramId])
   
   // Save to separate tables
   await migrateSingleDiagram(diagramId, data)
   
   // Update the data field for backward compatibility
-  await db.query('UPDATE diagrams SET data = $1, updated_at = now() WHERE id = $2', [JSON.stringify(data), diagramId])
+  await db.query('UPDATE section0.cr07Bdiagrams SET data = $1, updated_at = now() WHERE id = $2', [JSON.stringify(data), diagramId])
 }
 
 // Helper function to load diagram with objects and connections
 async function loadDiagramWithRelations(diagramId, ownerId) {
   // Get diagram metadata
   const diagramResult = await db.query(
-    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM diagrams WHERE id = $1 AND owner_id = $2',
+    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
     [diagramId, ownerId]
   )
   
@@ -231,14 +234,14 @@ async function loadDiagramWithRelations(diagramId, ownerId) {
   // Get objects
   const objectsResult = await db.query(`
     SELECT id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at 
-    FROM diagram_objects WHERE diagram_id = $1 ORDER BY created_at
+    FROM section0.cr07Cdiagram_objects WHERE diagram_id = $1 ORDER BY created_at
   `, [diagramId])
   
   // Get connections
   const connectionsResult = await db.query(`
     SELECT id, edge_id, source_node_id, target_node_id, source_handle, target_handle, 
            edge_type, animated, data, style, created_at, updated_at
-    FROM diagram_connections WHERE diagram_id = $1 ORDER BY created_at
+    FROM section0.cr07Ddiagram_connections WHERE diagram_id = $1 ORDER BY created_at
   `, [diagramId])
   
   // Format objects
@@ -349,7 +352,7 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body || {}
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
     const normEmail = String(email).trim().toLowerCase()
-    const r = await db.query('SELECT id, email, name, password_hash FROM users WHERE email=$1', [normEmail])
+    const r = await db.query('SELECT id, email, name, password_hash FROM section0.cr07Ausers WHERE email=$1', [normEmail])
     if (r.rowCount === 0) return res.status(401).json({ error: 'Invalid credentials' })
     const u = r.rows[0]
     const ok = await bcrypt.compare(String(password), u.password_hash)
@@ -374,7 +377,7 @@ app.get('/api/auth/me', async (req, res) => {
   try {
     const uid = getUserIdFromReq(req)
     if (!uid) return res.status(401).json({ error: 'Unauthorized' })
-    const r = await db.query('SELECT id, email, name FROM users WHERE id=$1', [uid])
+    const r = await db.query('SELECT id, email, name FROM section0.cr07Ausers WHERE id=$1', [uid])
     if (r.rowCount === 0) return res.status(401).json({ error: 'Unauthorized' })
     const u = r.rows[0]
     res.json({ id: u.id, email: u.email, name: u.name })
@@ -388,7 +391,7 @@ app.get('/api/auth/me', async (req, res) => {
 app.get('/api/diagrams', authRequired, async (req, res) => {
   try {
     const r = await db.query(
-      'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt" FROM diagrams WHERE owner_id=$1 ORDER BY updated_at DESC',
+      'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt" FROM section0.cr07Bdiagrams WHERE owner_id=$1 ORDER BY updated_at DESC',
       [req.userId]
     )
     res.json(r.rows)
@@ -424,7 +427,7 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
     
     // Create main diagram record
     const r = await db.query(
-      'INSERT INTO diagrams (id, name, data, owner_id) VALUES ($1, $2, $3, $4) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+      'INSERT INTO section0.cr07Bdiagrams (id, name, data, owner_id) VALUES ($1, $2, $3, $4) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
       [id, name, data, req.userId]
     )
     
@@ -448,7 +451,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (name !== undefined && data !== undefined) {
       const r = await db.query(
-        'UPDATE diagrams SET name=$2, data=$3, updated_at=now() WHERE id=$1 AND owner_id=$4 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, updated_at=now() WHERE id=$1 AND owner_id=$4 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
         [id, String(name), data, req.userId]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
@@ -460,7 +463,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (name !== undefined) {
       const r = await db.query(
-        'UPDATE diagrams SET name=$2, updated_at=now() WHERE id=$1 AND owner_id=$3 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+        'UPDATE section0.cr07Bdiagrams SET name=$2, updated_at=now() WHERE id=$1 AND owner_id=$3 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
         [id, String(name), req.userId]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
@@ -468,7 +471,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (data !== undefined) {
       const r = await db.query(
-        'UPDATE diagrams SET data=$2, updated_at=now() WHERE id=$1 AND owner_id=$3 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+        'UPDATE section0.cr07Bdiagrams SET data=$2, updated_at=now() WHERE id=$1 AND owner_id=$3 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
         [id, data, req.userId]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
@@ -488,7 +491,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
 app.delete('/api/diagrams/:id', authRequired, async (req, res) => {
   try {
     const { id } = req.params
-    const r = await db.query('DELETE FROM diagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    const r = await db.query('DELETE FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
     if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
     // Objects and connections will be deleted automatically via CASCADE
     res.json({ ok: true })
@@ -506,11 +509,11 @@ app.get('/api/diagrams/:id/objects', authRequired, async (req, res) => {
     const { id } = req.params
     
     // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const r = await db.query(
-      'SELECT id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at FROM diagram_objects WHERE diagram_id=$1 ORDER BY created_at',
+      'SELECT id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at FROM section0.cr07Cdiagram_objects WHERE diagram_id=$1 ORDER BY created_at',
       [id]
     )
     
@@ -541,11 +544,11 @@ app.get('/api/diagrams/:id/connections', authRequired, async (req, res) => {
     const { id } = req.params
     
     // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const r = await db.query(
-      'SELECT id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style, created_at, updated_at FROM diagram_connections WHERE diagram_id=$1 ORDER BY created_at',
+      'SELECT id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style, created_at, updated_at FROM section0.cr07Ddiagram_connections WHERE diagram_id=$1 ORDER BY created_at',
       [id]
     )
     
@@ -579,12 +582,12 @@ app.post('/api/diagrams/:id/objects', authRequired, async (req, res) => {
     const { nodeId, nodeType, positionX, positionY, width, height, data } = req.body
     
     // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const objId = genId('obj')
     const r = await db.query(`
-      INSERT INTO diagram_objects (id, diagram_id, node_id, node_type, position_x, position_y, width, height, data)
+      INSERT INTO section0.cr07Cdiagram_objects (id, diagram_id, node_id, node_type, position_x, position_y, width, height, data)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at
     `, [objId, diagramId, nodeId, nodeType, positionX, positionY, width || null, height || null, JSON.stringify(data || {})])
@@ -616,12 +619,12 @@ app.post('/api/diagrams/:id/connections', authRequired, async (req, res) => {
     const { edgeId, sourceNodeId, targetNodeId, sourceHandle, targetHandle, edgeType, animated, data, style } = req.body
     
     // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const connId = genId('conn')
     const r = await db.query(`
-      INSERT INTO diagram_connections (id, diagram_id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style)
+      INSERT INTO section0.cr07Ddiagram_connections (id, diagram_id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style, created_at, updated_at
     `, [connId, diagramId, edgeId, sourceNodeId, targetNodeId, sourceHandle || null, targetHandle || null, edgeType || 'dir', animated !== false, JSON.stringify(data || {}), JSON.stringify(style || {})])
