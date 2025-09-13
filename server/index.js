@@ -44,13 +44,263 @@ async function ensureSchema() {
       name TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      data JSONB NOT NULL,
+      data JSONB, -- Keep for backward compatibility
       owner_id TEXT
     );
   `)
+  
+  // New tables for objects and connections
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagram_objects (
+      id TEXT PRIMARY KEY,
+      diagram_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      node_type TEXT NOT NULL,
+      position_x NUMERIC NOT NULL,
+      position_y NUMERIC NOT NULL,
+      width NUMERIC,
+      height NUMERIC,
+      data JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (diagram_id) REFERENCES diagrams(id) ON DELETE CASCADE
+    );
+  `)
+  
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS diagram_connections (
+      id TEXT PRIMARY KEY,
+      diagram_id TEXT NOT NULL,
+      edge_id TEXT NOT NULL,
+      source_node_id TEXT NOT NULL,
+      target_node_id TEXT NOT NULL,
+      source_handle TEXT,
+      target_handle TEXT,
+      edge_type TEXT DEFAULT 'dir',
+      animated BOOLEAN DEFAULT true,
+      data JSONB DEFAULT '{}',
+      style JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (diagram_id) REFERENCES diagrams(id) ON DELETE CASCADE
+    );
+  `)
+  
+  // Create indexes
+  await db.query('CREATE INDEX IF NOT EXISTS diagram_objects_diagram_id_idx ON diagram_objects(diagram_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS diagram_objects_node_id_idx ON diagram_objects(node_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS diagram_connections_diagram_id_idx ON diagram_connections(diagram_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS diagram_connections_edge_id_idx ON diagram_connections(edge_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS diagram_connections_source_target_idx ON diagram_connections(source_node_id, target_node_id)')
+  
+  // Unique constraints
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS diagram_objects_unique_node_per_diagram ON diagram_objects(diagram_id, node_id)')
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS diagram_connections_unique_edge_per_diagram ON diagram_connections(diagram_id, edge_id)')
+  
   // In case the table existed before owner_id field was introduced
   await db.query('ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS owner_id TEXT')
   await db.query('CREATE INDEX IF NOT EXISTS diagrams_owner_id_idx ON diagrams(owner_id)')
+  
+  // Auto-migrate existing data from JSON format to separate tables
+  await migrateLegacyData()
+}
+
+// Helper function to migrate existing data from diagrams.data to separate tables
+async function migrateLegacyData() {
+  try {
+    console.log('🔄 Checking for legacy data migration...')
+    
+    // Check if there are diagrams with data but no corresponding objects/connections
+    const legacyDiagrams = await db.query(`
+      SELECT d.id, d.data 
+      FROM diagrams d 
+      WHERE d.data IS NOT NULL 
+      AND NOT EXISTS (SELECT 1 FROM diagram_objects WHERE diagram_id = d.id)
+    `)
+    
+    if (legacyDiagrams.rowCount === 0) {
+      console.log('✅ No legacy data to migrate')
+      return
+    }
+    
+    console.log(`📦 Found ${legacyDiagrams.rowCount} diagrams to migrate`)
+    
+    for (const diagram of legacyDiagrams.rows) {
+      await migrateSingleDiagram(diagram.id, diagram.data)
+    }
+    
+    console.log('✅ Legacy data migration completed')
+  } catch (error) {
+    console.error('❌ Error during legacy data migration:', error)
+    // Don't throw - let the app continue to work
+  }
+}
+
+// Migrate a single diagram's data to separate tables
+async function migrateSingleDiagram(diagramId, data) {
+  if (!data || typeof data !== 'object') return
+  
+  // Clear any existing records (in case of re-migration)
+  await db.query('DELETE FROM diagram_objects WHERE diagram_id = $1', [diagramId])
+  await db.query('DELETE FROM diagram_connections WHERE diagram_id = $1', [diagramId])
+  
+  // Migrate nodes to diagram_objects
+  if (data.nodes && Array.isArray(data.nodes)) {
+    for (const node of data.nodes) {
+      const objId = genId('obj')
+      await db.query(`
+        INSERT INTO diagram_objects (
+          id, diagram_id, node_id, node_type, 
+          position_x, position_y, width, height, data
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
+        objId,
+        diagramId,
+        node.id,
+        node.type,
+        node.position?.x || 0,
+        node.position?.y || 0,
+        node.width || null,
+        node.height || null,
+        JSON.stringify(node.data || {})
+      ])
+    }
+  }
+  
+  // Migrate edges to diagram_connections
+  if (data.edges && Array.isArray(data.edges)) {
+    for (const edge of data.edges) {
+      const connId = genId('conn')
+      await db.query(`
+        INSERT INTO diagram_connections (
+          id, diagram_id, edge_id, source_node_id, target_node_id,
+          source_handle, target_handle, edge_type, animated, data, style
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `, [
+        connId,
+        diagramId,
+        edge.id,
+        edge.source,
+        edge.target,
+        edge.sourceHandle || null,
+        edge.targetHandle || null,
+        edge.type || 'dir',
+        edge.animated !== false,
+        JSON.stringify(edge.data || {}),
+        JSON.stringify(edge.style || {})
+      ])
+    }
+  }
+  
+  console.log(`📝 Migrated diagram ${diagramId}`)
+}
+
+// Helper function to save diagram data to both formats (for compatibility)
+async function saveDiagramData(diagramId, data, ownerId) {
+  // Verify ownership
+  const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id = $1 AND owner_id = $2', [diagramId, ownerId])
+  if (diagramCheck.rowCount === 0) {
+    throw new Error('Diagram not found or access denied')
+  }
+  
+  // Clear existing objects and connections
+  await db.query('DELETE FROM diagram_objects WHERE diagram_id = $1', [diagramId])
+  await db.query('DELETE FROM diagram_connections WHERE diagram_id = $1', [diagramId])
+  
+  // Save to separate tables
+  await migrateSingleDiagram(diagramId, data)
+  
+  // Update the data field for backward compatibility
+  await db.query('UPDATE diagrams SET data = $1, updated_at = now() WHERE id = $2', [JSON.stringify(data), diagramId])
+}
+
+// Helper function to load diagram with objects and connections
+async function loadDiagramWithRelations(diagramId, ownerId) {
+  // Get diagram metadata
+  const diagramResult = await db.query(
+    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM diagrams WHERE id = $1 AND owner_id = $2',
+    [diagramId, ownerId]
+  )
+  
+  if (diagramResult.rowCount === 0) {
+    return null
+  }
+  
+  const diagram = diagramResult.rows[0]
+  
+  // Get objects
+  const objectsResult = await db.query(`
+    SELECT id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at 
+    FROM diagram_objects WHERE diagram_id = $1 ORDER BY created_at
+  `, [diagramId])
+  
+  // Get connections
+  const connectionsResult = await db.query(`
+    SELECT id, edge_id, source_node_id, target_node_id, source_handle, target_handle, 
+           edge_type, animated, data, style, created_at, updated_at
+    FROM diagram_connections WHERE diagram_id = $1 ORDER BY created_at
+  `, [diagramId])
+  
+  // Format objects
+  const objects = objectsResult.rows.map(row => ({
+    id: row.id,
+    diagramId,
+    nodeId: row.node_id,
+    nodeType: row.node_type,
+    positionX: parseFloat(row.position_x),
+    positionY: parseFloat(row.position_y),
+    width: row.width ? parseFloat(row.width) : undefined,
+    height: row.height ? parseFloat(row.height) : undefined,
+    data: row.data,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }))
+  
+  // Format connections
+  const connections = connectionsResult.rows.map(row => ({
+    id: row.id,
+    diagramId,
+    edgeId: row.edge_id,
+    sourceNodeId: row.source_node_id,
+    targetNodeId: row.target_node_id,
+    sourceHandle: row.source_handle,
+    targetHandle: row.target_handle,
+    edgeType: row.edge_type,
+    animated: row.animated,
+    data: row.data,
+    style: row.style,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }))
+  
+  // Convert to React Flow format for backward compatibility
+  const nodes = objects.map(obj => ({
+    id: obj.nodeId,
+    type: obj.nodeType,
+    position: { x: obj.positionX, y: obj.positionY },
+    data: obj.data,
+    width: obj.width,
+    height: obj.height
+  }))
+  
+  const edges = connections.map(conn => ({
+    id: conn.edgeId,
+    source: conn.sourceNodeId,
+    target: conn.targetNodeId,
+    sourceHandle: conn.sourceHandle,
+    targetHandle: conn.targetHandle,
+    type: conn.edgeType,
+    animated: conn.animated,
+    data: conn.data,
+    style: conn.style
+  }))
+  
+  return {
+    ...diagram,
+    objects,
+    connections,
+    data: { nodes, edges } // For backward compatibility
+  }
 }
 
 const genId = (p = 'd') => `${p}_${Date.now()}_${Math.round(Math.random() * 1e6)}`
@@ -152,12 +402,13 @@ app.get('/api/diagrams', authRequired, async (req, res) => {
 app.get('/api/diagrams/:id', authRequired, async (req, res) => {
   try {
     const { id } = req.params
-    const r = await db.query(
-      'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM diagrams WHERE id=$1 AND owner_id=$2',
-      [id, req.userId]
-    )
-    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
-    res.json(r.rows[0])
+    const diagramWithRelations = await loadDiagramWithRelations(id, req.userId)
+    
+    if (!diagramWithRelations) {
+      return res.status(404).json({ error: 'Not found' })
+    }
+    
+    res.json(diagramWithRelations)
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to get diagram' })
@@ -170,10 +421,16 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
     const id = genId()
     const name = (req.body?.name || 'Sơ đồ mới').toString()
     const data = req.body?.data ?? { nodes: [], edges: [] }
+    
+    // Create main diagram record
     const r = await db.query(
       'INSERT INTO diagrams (id, name, data, owner_id) VALUES ($1, $2, $3, $4) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
       [id, name, data, req.userId]
     )
+    
+    // Save to new format tables as well
+    await saveDiagramData(id, data, req.userId)
+    
     res.status(201).json(r.rows[0])
   } catch (e) {
     console.error(e)
@@ -195,6 +452,10 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
         [id, String(name), data, req.userId]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
+      
+      // Update the objects and connections tables
+      await saveDiagramData(id, data, req.userId)
+      
       return res.json(r.rows[0])
     }
     if (name !== undefined) {
@@ -211,6 +472,10 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
         [id, data, req.userId]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
+      
+      // Update the objects and connections tables
+      await saveDiagramData(id, data, req.userId)
+      
       return res.json(r.rows[0])
     }
   } catch (e) {
@@ -225,10 +490,161 @@ app.delete('/api/diagrams/:id', authRequired, async (req, res) => {
     const { id } = req.params
     const r = await db.query('DELETE FROM diagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
     if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
+    // Objects and connections will be deleted automatically via CASCADE
     res.json({ ok: true })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to delete diagram' })
+  }
+})
+
+// New API endpoints for managing objects and connections separately
+
+// Get objects for a diagram
+app.get('/api/diagrams/:id/objects', authRequired, async (req, res) => {
+  try {
+    const { id } = req.params
+    
+    // Verify diagram ownership
+    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
+    
+    const r = await db.query(
+      'SELECT id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at FROM diagram_objects WHERE diagram_id=$1 ORDER BY created_at',
+      [id]
+    )
+    
+    const objects = r.rows.map(row => ({
+      id: row.id,
+      diagramId: id,
+      nodeId: row.node_id,
+      nodeType: row.node_type,
+      positionX: parseFloat(row.position_x),
+      positionY: parseFloat(row.position_y),
+      width: row.width ? parseFloat(row.width) : undefined,
+      height: row.height ? parseFloat(row.height) : undefined,
+      data: row.data,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }))
+    
+    res.json(objects)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Failed to get objects' })
+  }
+})
+
+// Get connections for a diagram
+app.get('/api/diagrams/:id/connections', authRequired, async (req, res) => {
+  try {
+    const { id } = req.params
+    
+    // Verify diagram ownership
+    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
+    
+    const r = await db.query(
+      'SELECT id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style, created_at, updated_at FROM diagram_connections WHERE diagram_id=$1 ORDER BY created_at',
+      [id]
+    )
+    
+    const connections = r.rows.map(row => ({
+      id: row.id,
+      diagramId: id,
+      edgeId: row.edge_id,
+      sourceNodeId: row.source_node_id,
+      targetNodeId: row.target_node_id,
+      sourceHandle: row.source_handle,
+      targetHandle: row.target_handle,
+      edgeType: row.edge_type,
+      animated: row.animated,
+      data: row.data,
+      style: row.style,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }))
+    
+    res.json(connections)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Failed to get connections' })
+  }
+})
+
+// Create a new object
+app.post('/api/diagrams/:id/objects', authRequired, async (req, res) => {
+  try {
+    const { id: diagramId } = req.params
+    const { nodeId, nodeType, positionX, positionY, width, height, data } = req.body
+    
+    // Verify diagram ownership
+    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
+    if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
+    
+    const objId = genId('obj')
+    const r = await db.query(`
+      INSERT INTO diagram_objects (id, diagram_id, node_id, node_type, position_x, position_y, width, height, data)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, node_id, node_type, position_x, position_y, width, height, data, created_at, updated_at
+    `, [objId, diagramId, nodeId, nodeType, positionX, positionY, width || null, height || null, JSON.stringify(data || {})])
+    
+    const obj = r.rows[0]
+    res.status(201).json({
+      id: obj.id,
+      diagramId,
+      nodeId: obj.node_id,
+      nodeType: obj.node_type,
+      positionX: parseFloat(obj.position_x),
+      positionY: parseFloat(obj.position_y),
+      width: obj.width ? parseFloat(obj.width) : undefined,
+      height: obj.height ? parseFloat(obj.height) : undefined,
+      data: obj.data,
+      createdAt: obj.created_at,
+      updatedAt: obj.updated_at
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Failed to create object' })
+  }
+})
+
+// Create a new connection
+app.post('/api/diagrams/:id/connections', authRequired, async (req, res) => {
+  try {
+    const { id: diagramId } = req.params
+    const { edgeId, sourceNodeId, targetNodeId, sourceHandle, targetHandle, edgeType, animated, data, style } = req.body
+    
+    // Verify diagram ownership
+    const diagramCheck = await db.query('SELECT id FROM diagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
+    if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
+    
+    const connId = genId('conn')
+    const r = await db.query(`
+      INSERT INTO diagram_connections (id, diagram_id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, edge_id, source_node_id, target_node_id, source_handle, target_handle, edge_type, animated, data, style, created_at, updated_at
+    `, [connId, diagramId, edgeId, sourceNodeId, targetNodeId, sourceHandle || null, targetHandle || null, edgeType || 'dir', animated !== false, JSON.stringify(data || {}), JSON.stringify(style || {})])
+    
+    const conn = r.rows[0]
+    res.status(201).json({
+      id: conn.id,
+      diagramId,
+      edgeId: conn.edge_id,
+      sourceNodeId: conn.source_node_id,
+      targetNodeId: conn.target_node_id,
+      sourceHandle: conn.source_handle,
+      targetHandle: conn.target_handle,
+      edgeType: conn.edge_type,
+      animated: conn.animated,
+      data: conn.data,
+      style: conn.style,
+      createdAt: conn.created_at,
+      updatedAt: conn.updated_at
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Failed to create connection' })
   }
 })
 

@@ -40,6 +40,48 @@ export type AlgoNodeData = {
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>
 export type AlgoEdge = Edge
 
+// New types for database entities
+export type DiagramObject = {
+  id: string
+  diagramId: string
+  nodeId: string // React Flow node ID
+  nodeType: AlgoNodeType
+  positionX: number
+  positionY: number
+  width?: number
+  height?: number
+  data: AlgoNodeData
+  createdAt: string
+  updatedAt: string
+}
+
+export type DiagramConnection = {
+  id: string
+  diagramId: string
+  edgeId: string // React Flow edge ID  
+  sourceNodeId: string
+  targetNodeId: string
+  sourceHandle?: string
+  targetHandle?: string
+  edgeType: string
+  animated: boolean
+  data: Record<string, unknown>
+  style: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+// Helper types for API responses
+export type DiagramWithRelations = {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  ownerId: string
+  objects: DiagramObject[]
+  connections: DiagramConnection[]
+}
+
 export function autoPositions(a: { x: number; y: number; width?: number; height?: number }, b: { x: number; y: number; width?: number; height?: number }) {
   const ax = a.x + (a.width ?? 0) / 2
   const ay = a.y + (a.height ?? 0) / 2
@@ -56,5 +98,59 @@ export function autoPositions(a: { x: number; y: number; width?: number; height?
   return {
     sourcePosition: dy >= 0 ? Position.Bottom : Position.Top,
     targetPosition: dy >= 0 ? Position.Top : Position.Bottom,
+  }
+}
+
+// Utility functions to convert between database entities and React Flow objects
+export function diagramObjectToAlgoNode(obj: DiagramObject): AlgoNode {
+  return {
+    id: obj.nodeId,
+    type: obj.nodeType,
+    position: { x: obj.positionX, y: obj.positionY },
+    data: obj.data,
+    width: obj.width,
+    height: obj.height,
+  }
+}
+
+export function algoNodeToDiagramObject(node: AlgoNode, diagramId: string): Omit<DiagramObject, 'id' | 'createdAt' | 'updatedAt'> {
+  return {
+    diagramId,
+    nodeId: node.id,
+    nodeType: node.type as AlgoNodeType,
+    positionX: node.position.x,
+    positionY: node.position.y,
+    width: node.width,
+    height: node.height,
+    data: node.data,
+  }
+}
+
+export function diagramConnectionToAlgoEdge(conn: DiagramConnection): AlgoEdge {
+  return {
+    id: conn.edgeId,
+    source: conn.sourceNodeId,
+    target: conn.targetNodeId,
+    sourceHandle: conn.sourceHandle,
+    targetHandle: conn.targetHandle,
+    type: conn.edgeType,
+    animated: conn.animated,
+    data: conn.data,
+    style: conn.style,
+  }
+}
+
+export function algoEdgeToDiagramConnection(edge: AlgoEdge, diagramId: string): Omit<DiagramConnection, 'id' | 'createdAt' | 'updatedAt'> {
+  return {
+    diagramId,
+    edgeId: edge.id,
+    sourceNodeId: edge.source,
+    targetNodeId: edge.target,
+    sourceHandle: edge.sourceHandle || undefined,
+    targetHandle: edge.targetHandle || undefined,
+    edgeType: edge.type || 'dir',
+    animated: edge.animated ?? true,
+    data: edge.data || {},
+    style: (edge.style || {}) as Record<string, unknown>,
   }
 }
