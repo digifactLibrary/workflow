@@ -89,6 +89,8 @@ async function ensureSchema() {
     );
   `)
   
+    // Không cần tạo bảng mới vì chúng ta sẽ sử dụng bảng hiện có
+  
   // Create indexes
   await db.query('CREATE INDEX IF NOT EXISTS cr07Cdiagram_objects_diagram_id_idx ON section0.cr07Cdiagram_objects(diagram_id)')
   await db.query('CREATE INDEX IF NOT EXISTS cr07Cdiagram_objects_node_id_idx ON section0.cr07Cdiagram_objects(node_id)')
@@ -106,6 +108,9 @@ async function ensureSchema() {
   
   // Auto-migrate existing data from JSON format to separate tables
   await migrateLegacyData()
+  
+  // Seed default options data if tables are empty
+  await seedDefaultOptions()
 }
 
 // Helper function to migrate existing data from diagrams.data to separate tables
@@ -196,6 +201,13 @@ async function migrateSingleDiagram(diagramId, data) {
   }
   
   console.log(`📝 Migrated diagram ${diagramId}`)
+}
+
+// Không cần seedDefaultOptions vì chúng ta lấy từ các bảng đã có sẵn
+async function seedDefaultOptions() {
+  // Chức năng này không cần thiết nữa vì chúng ta sẽ lấy dữ liệu từ các bảng hiện có
+  console.log('🔄 Bỏ qua quá trình seeding vì dữ liệu sẽ được lấy từ các bảng hiện có')
+  return
 }
 
 // Helper function to save diagram data to both formats (for compatibility)
@@ -650,6 +662,141 @@ app.post('/api/diagrams/:id/connections', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Failed to create connection' })
   }
 })
+
+// API endpoint to fetch options for DetailBar from existing database tables
+app.get('/api/options', async (req, res) => {
+  try {
+    // PHẦN 1: LẤY DỮ LIỆU CÁC SỰ KIỆN TRIGGER
+    const triggerEventOptionsResult = await db.query(`
+      SELECT 
+        id, 
+        code as value,
+        name as label,
+        icon as icon
+      FROM section0.cr07etriggerevent
+      ORDER BY name
+    `).catch(() => ({ rows: [] }));
+    
+    // PHẦN 2: LẤY DỮ LIỆU MODULE
+    const moduleOptionsResult = await db.query(`
+      SELECT 
+        id,
+        modelname as value,
+        displayname as label
+      FROM section0.cr04viewmodelmapping 
+      ORDER BY displayname
+    `).catch(() => ({ rows: [] }));
+    
+    // PHẦN 3: LẤY LOẠI GỬI TIN NHẮN
+    const sendKindOptionsResult = await db.query(`
+      SELECT 
+        id,
+        code as value,
+        name as label,
+        icon as icon
+      FROM section0.cr07fsendtype
+      ORDER BY name
+    `).catch(() => ({ rows: [] }));
+    
+    // PHẦN 4: LẤY DANH SÁCH VAI TRÒ
+    const humanRolesResult = await db.query(`
+      SELECT 
+        id,
+        ten as value,
+        ten as label
+      FROM section9nhansu.ns02bchucdanh
+      ORDER BY ten
+    `).catch(() => ({ rows: [] }));
+    
+    // PHẦN 5: LẤY DANH SÁCH NGƯỜI DÙNG
+    const humanPeopleResult = await db.query(`
+      SELECT 
+        id,
+        manhanvien as value,
+        hoten as label
+      FROM section9nhansu.ns01taikhoannguoidung
+      WHERE trangthai = 'Đang làm việc'
+      ORDER BY hoten
+    `).catch(() => ({ rows: [] }));
+    
+    // PHẦN 6: LẤY DANH SÁCH PHÒNG BAN
+    const departmentsResult = await db.query(`
+      SELECT 
+        id,
+        ten as value,
+        ten as label
+      FROM section9nhansu.ns02aphongban
+      ORDER BY ten
+    `).catch(() => ({ rows: [] }));
+
+    // Các tùy chọn mặc định nếu dữ liệu từ DB trống
+    const options = {
+      triggerEventOptions: triggerEventOptionsResult.rows.length > 0 
+        ? triggerEventOptionsResult.rows 
+        : [
+            { id: 'default_1', value: 'tạo mới', label: 'Tạo mới', icon: 'PlusCircle' },
+            { id: 'default_2', value: 'chỉnh sửa', label: 'Chỉnh sửa', icon: 'Pencil' },
+            { id: 'default_3', value: 'xóa', label: 'Xóa', icon: 'Trash2' },
+            { id: 'default_4', value: 'lưu trữ', label: 'Lưu trữ', icon: 'Archive' },
+            { id: 'default_5', value: 'hủy lưu trữ', label: 'Hủy lưu trữ', icon: 'ArchiveRestore' },
+            { id: 'default_6', value: 'phê duyệt', label: 'Phê duyệt', icon: 'CheckCircle2' },
+            { id: 'default_7', value: 'từ chối phê duyệt', label: 'Từ chối phê duyệt', icon: 'XCircle' },
+          ],
+      
+      triggerModuleOptions: moduleOptionsResult.rows.length > 0 
+        ? moduleOptionsResult.rows.map(row => ({ id: row.id, value: row.value, label: row.label }))
+        : [
+            { id: 'default_1', value: 'order_mgmt', label: 'Quản lý đơn hàng' },
+            { id: 'default_2', value: 'quote_new', label: 'Lên báo giá mới' },
+            { id: 'default_3', value: 'quote_list', label: 'Danh sách báo giá' },
+            { id: 'default_4', value: 'customer_list', label: 'Danh sách khách hàng' },
+            { id: 'default_5', value: 'order_list', label: 'Danh sách đơn hàng' },
+          ],
+      
+      sendKindOptions: sendKindOptionsResult.rows.length > 0 
+        ? sendKindOptionsResult.rows 
+        : [
+            { id: 'default_1', value: 'Email', label: 'Email', icon: 'Mail' },
+            { id: 'default_2', value: 'Notification', label: 'Notification in app', icon: 'Bell' },
+            { id: 'default_3', value: 'ChatApp', label: 'ChatApp', icon: 'MessageSquareText' },
+          ],
+      
+      humanPersonTypeOptions: [
+        { id: 'type_1', value: 'personal', label: 'Cá nhân' },
+        { id: 'type_2', value: 'role', label: 'Chức danh' },
+      ],
+      
+      humanPeopleOptions: humanPeopleResult.rows.length > 0 
+        ? humanPeopleResult.rows.map(row => ({ id: row.id, value: row.value, label: row.label }))
+        : [
+            { id: 'default_1', value: 'user1', label: 'Nguyễn Minh Khoa' },
+            { id: 'default_2', value: 'user2', label: 'Trần Thị Thu Hà' },
+            { id: 'default_3', value: 'user3', label: 'Lê Anh Tuấn' },
+          ],
+      
+      humanRoleOptions: humanRolesResult.rows.length > 0 
+        ? humanRolesResult.rows.map(row => ({ id: row.id, value: row.value, label: row.label }))
+        : [
+            { id: 'default_1', value: 'lead', label: 'Lead' },
+            { id: 'default_2', value: 'president', label: 'President' },
+            { id: 'default_3', value: 'engineer', label: 'Software Engineer' },
+            { id: 'default_4', value: 'pm', label: 'Product Manager' },
+          ],
+      
+      humanDepartmentOptions: departmentsResult.rows.length > 0 
+        ? departmentsResult.rows.map(row => ({ id: row.id, value: row.value, label: row.label }))
+        : [
+            { id: 'default_1', value: 'eng', label: 'Kỹ thuật (Engineering)' },
+            { id: 'default_2', value: 'product', label: 'Quản lý Sản phẩm (Product Management)' },
+          ],
+    };
+    
+    res.json(options);
+  } catch (e) {
+    console.error('Failed to fetch options:', e);
+    res.status(500).json({ error: 'Failed to fetch options' });
+  }
+});
 
 ensureSchema()
   .then(() => {

@@ -21,6 +21,7 @@ export type AlgoNodeData = {
   // Trigger-specific optional fields
   triggerEvents?: string[]
   triggerModules?: string[]
+  mappingIds?: string[]
   api?: string
   webhook?: string
   // Send-specific optional fields
@@ -33,7 +34,11 @@ export type AlgoNodeData = {
   humanPersonsPersonal?: string[]
   humanPersonsByRole?: string[]
   humanRoles?: string[]
+  humanRoleIds?: string[]
   humanDepartments?: string[]
+  humanDepartmentIds?: string[]
+  // Flags to indicate if options have been initialized
+  humanPersonalPeopleInitialized?: boolean
   humanRolePeopleInitialized?: boolean
 }
 

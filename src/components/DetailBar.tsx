@@ -1,152 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFlowStore } from '../state/flowStore'
+import { useOptionsStore } from '../state/optionsStore'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
-import { PlusCircle, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText } from 'lucide-react'
+import { PlusCircle, Send, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText, RefreshCw } from 'lucide-react'
 
-// Options for Trigger configuration (with icons)
-const triggerEventOptions = [
-  { value: 'tạo mới', label: 'Tạo mới', Icon: PlusCircle },
-  { value: 'chỉnh sửa', label: 'Chỉnh sửa', Icon: Pencil },
-  { value: 'xóa', label: 'Xóa', Icon: Trash2 },
-  { value: 'lưu trữ', label: 'Lưu trữ', Icon: Archive },
-  { value: 'hủy lưu trữ', label: 'Hủy lưu trữ', Icon: ArchiveRestore },
-  { value: 'phê duyệt', label: 'Phê duyệt', Icon: CheckCircle2 },
-  { value: 'từ chối phê duyệt', label: 'Từ chối phê duyệt', Icon: XCircle },
-]
-
-const triggerModuleOptions = [
-  'Quản lý đơn hàng',
-  'Lên báo giá mới',
-  'Danh sách báo giá',
-  'Danh sách khách hàng',
-  'Danh sách đơn hàng',
-
-  'Quản lý mua sắm',
-  'Nhà cung cấp',
-  'Cân đối - Dự trù',
-  'Yêu cầu mua hàng',
-
-  'Thư viện tài liệu',
-  'Loại nguyên vật liệu',
-  'Loại vật tư tiêu hao',
-  'Loại công cụ thiết bị',
-  'Loại sản phẩm',
-  'Loại thành phẩm',
-  'Quy trình sản xuất',
-  'Loại công đoạn',
-  'Quản lý tài liệu',
-
-  'Quản lý công cụ thiết bị',
-  'Danh sách công cụ thiết bị',
-  'Danh sách vật tư tiêu hao',
-  'Quản lý kiểm kê',
-  'Quản lý kiểm định',
-  'Quản lý bảo dưỡng',
-  'Quản lý sửa chữa',
-
-  'Quản lý kho',
-  'Nhập kho vật tư',
-  'Xuất kho vật tư',
-  'Tồn kho vật tư',
-
-  'Quản lý sản xuất',
-  'Kế hoạch sản xuất',
-  'Lệnh sản xuất',
-  'Đề nghị xuất vật tư',
-
-  'Thực thi sản xuất',
-  'Ghi nhận sản xuất',
-  'Lịch sử vấn đề sản xuất',
-
-  'Quản lý chất lượng',
-  'Phương pháp kiểm tra',
-  'Tiêu chuẩn kiểm tra cơ sở',
-  'Thực hiện kiểm tra',
-  'Hồ sơ sản phẩm',
-  'Quản lý vấn đề',
-
-  'Quản lý nhân sự',
-  'Danh sách nhân sự',
-  'Cơ cấu tổ chức',
-
-  'Giám sát - Báo cáo',
-  'Giám sát vận hành',
-  'Báo cáo SQCD',
-
-  'Tính năng hỗ trợ',
-  'Chat nội bộ',
-  'Tìm kiếm nhanh',
-  'ChatbotAI',
-  'Quản lý dự án - OpenProject',
-  'Tự động hóa quy trình',
-  'Email nội bộ',
-  'Khảo sát nội bộ',
-  'Đào tạo nội bộ',
-  'Đánh giá nội bộ',
-  'Trình duyệt web',
-
-  'Quản trị viên',
-  'Khai báo dùng chung',
-  'Quy tắc sinh mã tự động',
-  'Luồng phê duyệt',
-  'Tham chiếu có điều kiện',
-]
-
-// Options for Send configuration (with icons)
-const sendKindOptions = [
-  { value: 'Email', label: 'Email', Icon: Mail },
-  { value: 'Notification in app', label: 'Notification in app', Icon: Bell },
-  { value: 'ChatApp', label: 'ChatApp', Icon: MessageSquareText },
-]
-
-// Human configuration lists
-const humanPersonTypeOptions = [
-  { value: 'personal' as const, label: 'Cá nhân' },
-  { value: 'role' as const, label: 'Chức danh' },
-]
-
-const humanPeopleOptions = [
-  'Nguyễn Minh Khoa',
-  'Trần Thị Thu Hà',
-  'Lê Anh Tuấn',
-  'Phạm Ngọc Linh',
-  'Hoàng Gia Huy',
-  'Bùi Thanh Trúc',
-  'Đặng Quang Minh',
-  'Vũ Mai Anh',
-  'Đỗ Nhật Nam',
-  'Phan Khánh Vy',
-]
-
-const humanRoleOptions = [
-  'Lead',
-  'President',
-  'Software Engineer',
-  'Product Manager',
-  'DevOps Engineer',
-  'Site Reliability Engineer',
-  'QA Engineer',
-  'UI/UX Designer',
-  'Solutions Architect',
-  'Data Engineer',
-  'Data Scientist',
-  'Engineering Manager',
-]
-
-const humanDepartmentOptions = [
-  'Kỹ thuật (Engineering)',
-  'Quản lý Sản phẩm (Product Management)',
-  'Đảm bảo Chất lượng – QA',
-  'DevOps / Nền tảng (Platform)',
-  'Dữ liệu & Phân tích (Data & Analytics)',
-  'Kinh doanh (Sales)',
-  'Marketing',
-  'Chăm sóc Khách hàng / Customer Success',
-  'Nhân sự (People/HR)',
-  'Tài chính (Finance)',
-]
+// Icon mapping for dynamic loading
+const iconMap = {
+  PlusCircle,
+  Pencil,
+  Trash2,
+  Archive,
+  ArchiveRestore,
+  CheckCircle2,
+  XCircle,
+  Mail,
+  Bell,
+  MessageSquareText,
+  RefreshCw,
+  Send,
+}
 
 export function DetailBar() {
   const selection = useFlowStore((s) => s.selection)
@@ -154,6 +28,49 @@ export function DetailBar() {
   const edges = useFlowStore((s) => s.edges)
   const updateNodeData = useFlowStore((s) => s.updateNodeData)
   const updateEdgeData = useFlowStore((s) => s.updateEdgeData)
+  
+  // Get options from options store - sử dụng selectors riêng biệt để tránh re-render không cần thiết
+  const options = useOptionsStore(state => state.options)
+  const fetchOptions = useOptionsStore(state => state.fetchOptions)
+  const isLoadingOptions = useOptionsStore(state => state.isLoading)
+  const fetchingRef = useOptionsStore(state => state.fetchingRef)
+  
+  // Extract options from the store with stable references to prevent re-renders
+  const triggerEventOptions = useMemo(() => {
+    if (!options || !options.triggerEventOptions) return []
+    return options.triggerEventOptions.map(option => ({
+      ...option,
+      Icon: option.icon && iconMap[option.icon as keyof typeof iconMap] || PlusCircle
+    }))
+  }, [options?.triggerEventOptions])
+  
+  const triggerModuleOptions = useMemo(() => 
+    options?.triggerModuleOptions || []
+  , [options?.triggerModuleOptions])
+  
+  const sendKindOptions = useMemo(() => {
+    if (!options || !options.sendKindOptions) return []
+    return options.sendKindOptions.map(option => ({
+      ...option, 
+      Icon: option.icon && iconMap[option.icon as keyof typeof iconMap] || Bell
+    }))
+  }, [options?.sendKindOptions])
+  
+  const humanPersonTypeOptions = useMemo(() => 
+    options?.humanPersonTypeOptions || []
+  , [options?.humanPersonTypeOptions])
+  
+  const humanPeopleOptions = useMemo(() => 
+    options?.humanPeopleOptions || []
+  , [options?.humanPeopleOptions])
+  
+  const humanRoleOptions = useMemo(() => 
+    options?.humanRoleOptions || []
+  , [options?.humanRoleOptions])
+  
+  const humanDepartmentOptions = useMemo(() => 
+    options?.humanDepartmentOptions || []
+  , [options?.humanDepartmentOptions])
 
   const selectedNode = useMemo(() => (selection.nodeIds.length === 1 ? nodes.find((n) => n.id === selection.nodeIds[0]) : undefined), [selection, nodes])
   const selectedEdge = useMemo(() => (selection.edgeIds.length === 1 && selection.nodeIds.length === 0 ? edges.find((e) => e.id === selection.edgeIds[0]) : undefined), [selection, edges])
@@ -168,34 +85,67 @@ export function DetailBar() {
   const [humanRoleQuery, setHumanRoleQuery] = useState('')
   const [humanDeptQuery, setHumanDeptQuery] = useState('')
 
+  // Chỉ chạy effect này một lần khi component mount
+  useEffect(() => {
+    // Sử dụng một biến để đánh dấu nếu component đã unmount
+    let isMounted = true;
+    
+    // Hàm fetch riêng biệt để tránh sự phụ thuộc vào closure
+    const fetchData = async () => {
+      try {
+        // Chỉ fetchOptions nếu component vẫn mounted
+        if (isMounted) await fetchOptions();
+      } catch (error) {
+        console.error("Error fetching options:", error);
+      }
+    };
+    
+    // Fetch lần đầu khi mount
+    fetchData();
+    
+    // Set up interval với hàm fetchData local
+    const intervalId = setInterval(fetchData, 5 * 60 * 1000);
+    
+    // Cleanup
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [])
+
   const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  // Memorize các kết quả filter để tránh tính toán lại không cần thiết
   const filteredModules = useMemo(() => {
     const q = moduleQuery.trim()
-    if (!q) return triggerModuleOptions
+    if (!q) return triggerModuleOptions || []
+    if (!triggerModuleOptions || triggerModuleOptions.length === 0) return []
     const nq = normalize(q)
-    return triggerModuleOptions.filter((m) => normalize(m).includes(nq))
-  }, [moduleQuery])
+    return triggerModuleOptions.filter((m) => normalize(m.label || '').includes(nq))
+  }, [moduleQuery, triggerModuleOptions])
 
   const filteredHumanPeople = useMemo(() => {
     const q = humanPersonQuery.trim()
-    if (!q) return humanPeopleOptions
+    if (!q) return humanPeopleOptions || []
+    if (!humanPeopleOptions || humanPeopleOptions.length === 0) return []
     const nq = normalize(q)
-    return humanPeopleOptions.filter((m) => normalize(m).includes(nq))
-  }, [humanPersonQuery])
+    return humanPeopleOptions.filter((m) => normalize(m.label || '').includes(nq))
+  }, [humanPersonQuery, humanPeopleOptions])
 
   const filteredHumanRoles = useMemo(() => {
     const q = humanRoleQuery.trim()
-    if (!q) return humanRoleOptions
+    if (!q) return humanRoleOptions || []
+    if (!humanRoleOptions || humanRoleOptions.length === 0) return []
     const nq = normalize(q)
-    return humanRoleOptions.filter((m) => normalize(m).includes(nq))
-  }, [humanRoleQuery])
+    return humanRoleOptions.filter((m) => normalize(m.label || '').includes(nq))
+  }, [humanRoleQuery, humanRoleOptions])
 
   const filteredHumanDepts = useMemo(() => {
     const q = humanDeptQuery.trim()
-    if (!q) return humanDepartmentOptions
+    if (!q) return humanDepartmentOptions || []
+    if (!humanDepartmentOptions || humanDepartmentOptions.length === 0) return []
     const nq = normalize(q)
-    return humanDepartmentOptions.filter((m) => normalize(m).includes(nq))
-  }, [humanDeptQuery])
+    return humanDepartmentOptions.filter((m) => normalize(m.label || '').includes(nq))
+  }, [humanDeptQuery, humanDepartmentOptions])
 
   useEffect(() => {
     if (selectedNode) {
@@ -241,17 +191,39 @@ export function DetailBar() {
 
   const toggleTriggerModule = (name: string) => {
     if (!selectedNode) return
+    const selectedOption = triggerModuleOptions.find(opt => opt.value === name)
+  
     const current: string[] = ((selectedNode.data as any)?.triggerModules ?? []) as string[]
-    const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
-    updateNodeData(selectedNode.id, { triggerModules: next })
+    const currentIds: string[] = ((selectedNode.data as any)?.mappingIds ?? []) as string[]
+    
+    if (current.includes(name)) {
+      // Xóa khỏi danh sách
+      const newModules = current.filter((x) => x !== name)
+      const newIds = currentIds.filter((_, index) => current[index] !== name)
+      
+      updateNodeData(selectedNode.id, { 
+        triggerModules: newModules,
+        mappingIds: newIds 
+      })
+    } else {
+      // Thêm vào danh sách
+      const newModules = [...current, name]
+      const newIds = [...currentIds, selectedOption?.id || '']
+      
+      updateNodeData(selectedNode.id, { 
+        triggerModules: newModules,
+        mappingIds: newIds 
+      })
+    }
   }
 
-  const toggleSendKind = (name: string) => {
+  // Sử dụng useCallback để tránh tạo lại hàm này mỗi khi component re-render
+  const toggleSendKind = useCallback((name: string) => {
     if (!selectedNode) return
     const current: string[] = ((selectedNode.data as any)?.sendKinds ?? []) as string[]
     const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
     updateNodeData(selectedNode.id, { sendKinds: next })
-  }
+  }, [selectedNode, updateNodeData])
 
   const setHumanType = (value: 'personal' | 'role') => {
     if (!selectedNode) return
@@ -280,21 +252,79 @@ export function DetailBar() {
 
   const toggleHumanRole = (name: string) => {
     if (!selectedNode) return
-    const current: string[] = ((selectedNode.data as any)?.humanRoles ?? []) as string[]
-    const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
-    updateNodeData(selectedNode.id, { humanRoles: next })
+    
+    // Tìm option đầy đủ để lấy ID
+    const selectedOption = humanRoleOptions.find(opt => opt.value === name)
+    
+    // Lấy danh sách values và IDs hiện tại
+    const currentValues: string[] = ((selectedNode.data as any)?.humanRoles ?? []) as string[]
+    const currentIds: string[] = ((selectedNode.data as any)?.humanRoleIds ?? []) as string[]
+    
+    if (currentValues.includes(name)) {
+      // Xóa khỏi danh sách
+      const valueIndex = currentValues.indexOf(name)
+      const newValues = currentValues.filter(x => x !== name)
+      // Xóa ID tương ứng nếu có
+      const newIds = [...currentIds]
+      if (valueIndex >= 0 && valueIndex < currentIds.length) {
+        newIds.splice(valueIndex, 1)
+      }
+      
+      updateNodeData(selectedNode.id, { 
+        humanRoles: newValues,
+        humanRoleIds: newIds
+      })
+    } else {
+      // Thêm vào danh sách
+      const newValues = [...currentValues, name]
+      const newIds = [...currentIds, selectedOption?.id || '']
+      
+      updateNodeData(selectedNode.id, { 
+        humanRoles: newValues,
+        humanRoleIds: newIds
+      })
+    }
   }
 
   const toggleHumanDept = (name: string) => {
     if (!selectedNode) return
-    const current: string[] = ((selectedNode.data as any)?.humanDepartments ?? []) as string[]
-    const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
-    updateNodeData(selectedNode.id, { humanDepartments: next })
+    
+    // Tìm option đầy đủ để lấy ID
+    const selectedOption = humanDepartmentOptions.find(opt => opt.value === name)
+    
+    // Lấy danh sách values và IDs hiện tại
+    const currentValues: string[] = ((selectedNode.data as any)?.humanDepartments ?? []) as string[]
+    const currentIds: string[] = ((selectedNode.data as any)?.humanDepartmentIds ?? []) as string[]
+    
+    if (currentValues.includes(name)) {
+      // Xóa khỏi danh sách
+      const valueIndex = currentValues.indexOf(name)
+      const newValues = currentValues.filter(x => x !== name)
+      // Xóa ID tương ứng nếu có
+      const newIds = [...currentIds]
+      if (valueIndex >= 0 && valueIndex < currentIds.length) {
+        newIds.splice(valueIndex, 1)
+      }
+      
+      updateNodeData(selectedNode.id, { 
+        humanDepartments: newValues,
+        humanDepartmentIds: newIds
+      })
+    } else {
+      // Thêm vào danh sách
+      const newValues = [...currentValues, name]
+      const newIds = [...currentIds, selectedOption?.id || '']
+      
+      updateNodeData(selectedNode.id, { 
+        humanDepartments: newValues,
+        humanDepartmentIds: newIds
+      })
+    }
   }
 
   const selectAllHumanRoles = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanRoles: [...humanRoleOptions] })
+    updateNodeData(selectedNode.id, { humanRoles: humanRoleOptions.map(r => r.value) })
   }
   const clearAllHumanRoles = () => {
     if (!selectedNode) return
@@ -302,7 +332,7 @@ export function DetailBar() {
   }
   const selectAllHumanDepts = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanDepartments: [...humanDepartmentOptions] })
+    updateNodeData(selectedNode.id, { humanDepartments: humanDepartmentOptions.map(d => d.value) })
   }
   const clearAllHumanDepts = () => {
     if (!selectedNode) return
@@ -312,7 +342,7 @@ export function DetailBar() {
     if (!selectedNode) return
     const data: any = selectedNode.data || {}
     const byRole: string[] = (data?.humanPersonsByRole ?? []) as string[]
-    const all = [...humanPeopleOptions]
+    const all = humanPeopleOptions.map(p => p.value)
     const union = Array.from(new Set<string>([...all, ...byRole]))
     updateNodeData(selectedNode.id, { humanPersonsPersonal: all, humanPersons: union })
   }
@@ -327,7 +357,7 @@ export function DetailBar() {
     if (!selectedNode) return
     const data: any = selectedNode.data || {}
     const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
-    const all = [...humanPeopleOptions]
+    const all = humanPeopleOptions.map(p => p.value)
     const union = Array.from(new Set<string>([...personal, ...all]))
     updateNodeData(selectedNode.id, { humanPersonsByRole: all, humanPersons: union })
   }
@@ -339,27 +369,48 @@ export function DetailBar() {
     updateNodeData(selectedNode.id, { humanPersonsByRole: [], humanPersons: union })
   }
 
-  // Auto-select all people (role-block) whenever readiness changes from false -> true
-  const roleDeptReadyRef = useRef(false)
+  // Sử dụng memo để lưu cache giá trị people options
+  const stableHumanPeopleValues = useMemo(() => {
+    return humanPeopleOptions?.map(p => p.value) || []
+  }, [humanPeopleOptions])
+
+  // Hàm để kiểm tra và cập nhật người khi vai trò và phòng ban thay đổi
+  // Sử dụng useCallback để đảm bảo tính ổn định của hàm
+  const checkAndUpdatePeople = useCallback((node: any) => {
+    if (!node || node.type !== 'human') return;
+    
+    const data: any = node.data || {};
+    const humanType = (data?.humanType ?? 'personal') as 'personal' | 'role';
+    if (humanType !== 'role') return;
+    
+    const roles: string[] = (data?.humanRoles ?? []);
+    const depts: string[] = (data?.humanDepartments ?? []);
+    
+    // Chỉ cập nhật khi cả vai trò và phòng ban đều được chọn
+    if (roles.length > 0 && depts.length > 0) {
+      const personal: string[] = (data?.humanPersonsPersonal ?? []);
+      const peopleValues = stableHumanPeopleValues;
+      
+      // Kiểm tra xem đã có sẵn chưa
+      const currentByRole = data?.humanPersonsByRole || [];
+      
+      // Chỉ cập nhật khi cần thiết
+      if (JSON.stringify(currentByRole.sort()) !== JSON.stringify(peopleValues.sort())) {
+        const union = Array.from(new Set<string>([...personal, ...peopleValues]));
+        updateNodeData(node.id, { 
+          humanPersonsByRole: peopleValues, 
+          humanPersons: union 
+        });
+      }
+    }
+  }, [stableHumanPeopleValues, updateNodeData]);
+
+  // Thực hiện kiểm tra khi selectedNode thay đổi
   useEffect(() => {
-    if (!selectedNode || selectedNode.type !== 'human') return
-    const data: any = selectedNode.data || {}
-    const humanType = (data?.humanType ?? 'personal') as 'personal' | 'role'
-    if (humanType !== 'role') {
-      roleDeptReadyRef.current = false
-      return
+    if (selectedNode) {
+      checkAndUpdatePeople(selectedNode);
     }
-    const roles: string[] = (data?.humanRoles ?? []) as string[]
-    const depts: string[] = (data?.humanDepartments ?? []) as string[]
-    const hasBoth = roles.length > 0 && depts.length > 0
-    if (hasBoth && !roleDeptReadyRef.current) {
-      const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
-      const all = [...humanPeopleOptions]
-      const union = Array.from(new Set<string>([...personal, ...all]))
-      updateNodeData(selectedNode.id, { humanPersonsByRole: all, humanPersons: union })
-    }
-    roleDeptReadyRef.current = hasBoth
-  }, [selectedNode])
+  }, [selectedNode, checkAndUpdatePeople]);
 
   const selectAllTriggerEvents = () => {
     if (!selectedNode) return
@@ -372,7 +423,7 @@ export function DetailBar() {
 
   const selectAllModules = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { triggerModules: [...triggerModuleOptions] })
+    updateNodeData(selectedNode.id, { triggerModules: triggerModuleOptions.map(m => m.value) })
   }
   const clearAllModules = () => {
     if (!selectedNode) return
@@ -387,8 +438,27 @@ export function DetailBar() {
 
   return (
     <div className="w-80 shrink-0 border-l bg-card/60 backdrop-blur p-3 h-full overflow-y-auto">
-      <div className="text-sm font-semibold opacity-80">Chi tiết</div>
-      <div className="text-xs text-muted-foreground">{title}</div>
+      <div className="flex justify-between items-center">
+        <div>
+          <div className="text-sm font-semibold opacity-80">Chi tiết</div>
+          <div className="text-xs text-muted-foreground">{title}</div>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          title="Làm mới dữ liệu từ server"
+          onClick={() => {
+            // Sử dụng một timeout để tránh lỗi khi render
+            setTimeout(() => {
+              fetchOptions();
+            }, 0);
+          }}
+          disabled={isLoadingOptions}
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoadingOptions ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
       <Separator className="my-3" />
 
       <div className="space-y-2">
@@ -470,19 +540,19 @@ export function DetailBar() {
               <div className="border rounded-lg p-2 max-h-60 overflow-auto">
                 <div className="flex flex-wrap gap-2">
                   {filteredModules.map((opt) => {
-                    const checked = ((selectedNode.data as any)?.triggerModules ?? []).includes(opt)
+                    const checked = ((selectedNode.data as any)?.triggerModules ?? []).includes(opt.value)
                     return (
                       <button
-                        key={opt}
+                        key={opt.id}
                         type="button"
                         className={`text-xs px-3 py-1.5 rounded-full border transition ${
                           checked
                             ? 'bg-primary text-primary-foreground border-primary shadow-sm'
                             : 'bg-transparent hover:bg-muted border-input text-foreground/80'
                         }`}
-                        onClick={() => toggleTriggerModule(opt)}
+                        onClick={() => toggleTriggerModule(opt.value)}
                       >
-                        {opt}
+                        {opt.label}
                       </button>
                     )
                   })}
@@ -600,19 +670,19 @@ export function DetailBar() {
               <div className="border rounded-lg p-2 max-h-60 overflow-auto">
                 <div className="flex flex-wrap gap-2">
                   {filteredHumanPeople.map((opt) => {
-                    const checked = ((selectedNode.data as any)?.humanPersonsPersonal ?? []).includes(opt)
+                    const checked = ((selectedNode.data as any)?.humanPersonsPersonal ?? []).includes(opt.value)
                     return (
                       <button
-                        key={opt}
+                        key={opt.id}
                         type="button"
                         className={`text-xs px-3 py-1.5 rounded-full border transition ${
                           checked
                             ? 'bg-primary text-primary-foreground border-primary shadow-sm'
                             : 'bg-transparent hover:bg-muted border-input text-foreground/80'
                         }`}
-                        onClick={() => toggleHumanPersonPersonal(opt)}
+                        onClick={() => toggleHumanPersonPersonal(opt.value)}
                       >
-                        {opt}
+                        {opt.label}
                       </button>
                     )
                   })}
@@ -639,19 +709,19 @@ export function DetailBar() {
                 <div className="border rounded-lg p-2 max-h-60 overflow-auto">
                   <div className="flex flex-wrap gap-2">
                     {filteredHumanRoles.map((opt) => {
-                      const checked = ((selectedNode.data as any)?.humanRoles ?? []).includes(opt)
+                      const checked = ((selectedNode.data as any)?.humanRoles ?? []).includes(opt.value)
                       return (
                         <button
-                          key={opt}
+                          key={opt.id}
                           type="button"
                           className={`text-xs px-3 py-1.5 rounded-full border transition ${
                             checked
                               ? 'bg-primary text-primary-foreground border-primary shadow-sm'
                               : 'bg-transparent hover:bg-muted border-input text-foreground/80'
                           }`}
-                          onClick={() => toggleHumanRole(opt)}
+                          onClick={() => toggleHumanRole(opt.value)}
                         >
-                          {opt}
+                          {opt.label}
                         </button>
                       )
                     })}
@@ -674,19 +744,19 @@ export function DetailBar() {
                 <div className="border rounded-lg p-2 max-h-60 overflow-auto">
                   <div className="flex flex-wrap gap-2">
                     {filteredHumanDepts.map((opt) => {
-                      const checked = ((selectedNode.data as any)?.humanDepartments ?? []).includes(opt)
+                      const checked = ((selectedNode.data as any)?.humanDepartments ?? []).includes(opt.value)
                       return (
                         <button
-                          key={opt}
+                          key={opt.id}
                           type="button"
                           className={`text-xs px-3 py-1.5 rounded-full border transition ${
                             checked
                               ? 'bg-primary text-primary-foreground border-primary shadow-sm'
                               : 'bg-transparent hover:bg-muted border-input text-foreground/80'
                           }`}
-                          onClick={() => toggleHumanDept(opt)}
+                          onClick={() => toggleHumanDept(opt.value)}
                         >
-                          {opt}
+                          {opt.label}
                         </button>
                       )
                     })}
@@ -716,19 +786,19 @@ export function DetailBar() {
                     <div className="border rounded-lg p-2 max-h-60 overflow-auto">
                       <div className="flex flex-wrap gap-2">
                         {filteredHumanPeople.map((opt) => {
-                          const checked = ((selectedNode.data as any)?.humanPersonsByRole ?? []).includes(opt)
+                          const checked = ((selectedNode.data as any)?.humanPersonsByRole ?? []).includes(opt.value)
                           return (
                             <button
-                              key={opt}
+                              key={opt.id}
                               type="button"
                               className={`text-xs px-3 py-1.5 rounded-full border transition ${
                                 checked
                                   ? 'bg-primary text-primary-foreground border-primary shadow-sm'
                                   : 'bg-transparent hover:bg-muted border-input text-foreground/80'
                               }`}
-                              onClick={() => toggleHumanPersonRole(opt)}
+                              onClick={() => toggleHumanPersonRole(opt.value)}
                             >
-                              {opt}
+                              {opt.label}
                             </button>
                           )
                         })}
