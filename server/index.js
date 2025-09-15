@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import pkg from 'pg'
+import fetch from 'node-fetch'
 
 const { Pool } = pkg
 
@@ -105,6 +106,32 @@ async function ensureSchema() {
   // In case the table existed before owner_id field was introduced
   await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS owner_id TEXT')
   await db.query('CREATE INDEX IF NOT EXISTS cr07Bdiagrams_owner_id_idx ON section0.cr07Bdiagrams(owner_id)')
+  
+  // Create notification table for in-app notifications
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS section0.cr01notification (
+      id SERIAL PRIMARY KEY,
+      isread BOOLEAN DEFAULT FALSE,
+      sender TEXT,
+      receiver TEXT,
+      isaction BOOLEAN DEFAULT FALSE,
+      relatedid TEXT,
+      datatable TEXT,
+      active INTEGER DEFAULT 1,
+      createdate TIMESTAMPTZ DEFAULT now(),
+      writedate TIMESTAMPTZ DEFAULT now(),
+      createuid INTEGER DEFAULT 0,
+      writeuid INTEGER DEFAULT 0,
+      document TEXT,
+      title TEXT,
+      details TEXT
+    );
+  `)
+  
+  // Create indexes for notifications
+  await db.query('CREATE INDEX IF NOT EXISTS cr01notification_receiver_idx ON section0.cr01notification(receiver)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr01notification_sender_idx ON section0.cr01notification(sender)')
+  await db.query('CREATE INDEX IF NOT EXISTS cr01notification_isread_idx ON section0.cr01notification(isread)')
   
   // Auto-migrate existing data from JSON format to separate tables
   await migrateLegacyData()
@@ -656,18 +683,17 @@ app.post('/api/diagrams/:id/connections', authRequired, async (req, res) => {
 // API endpoint for workflow trigger processing
 app.post('/api/trigger', async (req, res) => {
   try {
-    console.log('Request body:', req.body);
-    const { event, mappingId, userId, data = {} } = req.body || {};
+    const { eventName, mappingId, userId, data = {} } = req.body || {};
     
-    if (!event || !mappingId) {
-      return res.status(400).json({ error: 'Missing required parameters: event and mappingId are required' });
+    if (!eventName || !mappingId) {
+      return res.status(400).json({ error: 'Missing required parameters: eventName and mappingId are required' });
     }
     
     if (!userId) {
       return res.status(400).json({ error: 'userId is required to check human node permissions' });
     }
 
-    console.log('Processing trigger with:', { event, mappingId, userId });
+    console.log('Processing trigger with:', { eventName, mappingId, userId });
     
     // Chuyển đổi mappingId thành số nếu là chuỗi số
     const mappingIdValue = !isNaN(mappingId) ? Number(mappingId) : mappingId;
@@ -682,7 +708,7 @@ app.post('/api/trigger', async (req, res) => {
         data->'triggerEvents' @> $1::jsonb AND
         data->'mappingIds' @> $2::jsonb
       LIMIT 1
-    `, [JSON.stringify([event]), JSON.stringify([mappingIdValue])]);
+    `, [JSON.stringify([eventName]), JSON.stringify([mappingIdValue])]);
     
     console.log('Found trigger nodes:', triggerNodesResult.rows.length);
     
@@ -691,7 +717,7 @@ app.post('/api/trigger', async (req, res) => {
         message: 'No matching trigger nodes found', 
         humanNodes: [],
         nextNodes: [],
-        searchParams: { event, mappingId: mappingIdValue }
+        searchParams: { eventName, mappingId: mappingIdValue }
       });
     }
     
@@ -769,12 +795,14 @@ app.post('/api/trigger', async (req, res) => {
       }));
     
     // Nếu có human nodes, kiểm tra quyền truy cập dựa trên thông tin người dùng
+    let userName = "Người dùng hệ thống";
     if (humanNodes.length > 0 && userId != 0) {
       // Lấy thông tin người dùng từ database
       const userResult = await db.query(`
         SELECT 
           manhanvien, 
-          recordidchucdanh
+          recordidchucdanh,
+          hoten
         FROM section9nhansu.ns01taikhoannguoidung
         WHERE id = $1
       `, [userId]).catch(() => ({ rows: [] }));
@@ -826,7 +854,58 @@ app.post('/api/trigger', async (req, res) => {
           humanNodes
         });
       }
+      
+      // Lấy tên người dùng từ thông tin
+      userName = userInfo.hoten || userName;
     }
+    
+    // Lấy thông tin sự kiện từ bảng cr07etriggerevent
+    const eventInfoResult = await db.query(`
+      SELECT name 
+      FROM section0.cr07etriggerevent 
+      WHERE code = $1
+    `, [eventName]).catch(() => ({ rows: [] }));
+    
+    const eventDisplayName = eventInfoResult.rowCount > 0 ? eventInfoResult.rows[0].name : eventName;
+    
+    // Thiết lập needAction dựa vào eventName
+    const needAction = eventName === 'sendapprove';
+    
+    // Lấy thông tin module từ bảng cr04viewmodelmapping
+    const moduleInfoResult = await db.query(`
+      SELECT displayname, modelname
+      FROM section0.cr04viewmodelmapping 
+      WHERE id = $1
+    `, [mappingId]).catch(() => ({ rows: [] }));
+    
+    const modelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].displayname : '';
+    const rawModelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].modelname : '';
+
+    const tableName = rawModelName
+      ? rawModelName.split('.').pop().toLowerCase()
+      : '';
+    // Xác định objectDisplayName từ dữ liệu
+    let objectDisplayName = '';
+    if (data) {
+      if (data.Code && data.Name) {
+        objectDisplayName = `[${data.Code}] ${data.Name}`;
+      } else if (data.Name) {
+        objectDisplayName = data.Name;
+      } else if (data.Code) {
+        objectDisplayName = data.Code;
+      } else if (data.Id) {
+        objectDisplayName = data.Id;
+      }
+    }
+    
+    // Chuẩn bị dữ liệu cho message
+    const enrichedData = {
+      ...data,
+      eventName: eventDisplayName,
+      modelName,
+      objectDisplayName,
+      datatable: tableName,
+    };
     
     // Người dùng có quyền hoặc không có human nodes, tiếp tục lấy next nodes
     const nextNodeIds = new Set();
@@ -871,26 +950,242 @@ app.post('/api/trigger', async (req, res) => {
       };
     });
     
+    // Tìm các node Send từ nextNodes
+    const sendNodes = nextNodes.filter(node => node.nodeType === 'send');
+    console.log(`Found ${sendNodes.length} send nodes to process`);
+    
+    // Gọi API message cho từng node send
+    const messagePromises = sendNodes.map(sendNode => {
+      const messageBody = {
+        senderId: userId,
+        senderName: userName,
+        sendId: sendNode.id,
+        needAction,
+        data: enrichedData
+      };
+      
+      // Thực hiện HTTP POST request đến API message endpoint
+      return fetch(`${req.protocol}://${req.get('host')}/api/message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messageBody)
+      }).then(response => response.json())
+        .catch(err => {
+          console.error(`Error calling message API for send node ${sendNode.id}:`, err);
+          return { error: err.message, sendNodeId: sendNode.id };
+        });
+    });
+    
+    // Đợi tất cả các API calls hoàn tất
+    const messageResults = await Promise.all(messagePromises);
+    console.log("Message API call results:", messageResults);
+    
     // Return the results
-    res.json({
+    const responseData = {
       triggered: {
-        event,
+        eventName,
         mappingId: mappingIdValue,
         userId,
         timestamp: new Date().toISOString(),
-        data
+        data: enrichedData
       },
       triggerNode: {
         nodeId: triggerNodeId,
         data: triggerNodeData
       },
       connections: connections,
-      humanNodes: formattedHumanNodes,  // Human nodes được format theo yêu cầu
-      nextNodes: nextNodes     // Các node là target của trigger node
-    });
+      humanNodes: formattedHumanNodes,
+      nextNodes: nextNodes,
+      messages: messageResults
+    };
+
+    console.log("Response Data:", responseData);
+
+    res.json(responseData);
+    console.log("Trigger processed successfully");
   } catch (e) {
     console.error('Error processing trigger:', e);
     res.status(500).json({ error: 'Failed to process trigger', details: e.message });
+  }
+});
+
+// Helper function to process messages by type
+async function processMessageByType(sendType, senderId, senderName, needAction, data, receivers) {
+  let messages = [];
+  
+  // Process in-app notifications
+  if (sendType === 'inapp') {
+    for (const receiverId of receivers) {
+      if (!receiverId) continue;
+      
+      // Prepare notification details
+      const title = data.eventName ? `Thông báo ${data.eventName}` : 'Thông báo mới';
+      const details = `Người gửi: ${senderName}\n${data.eventName || ''} ${data.modelName || ''}: ${data.objectDisplayName || ''}`;
+      
+      const message = `${title}\n${details}`;
+      messages.push(message);
+      
+      // Insert notification into database
+      await db.query(`
+        INSERT INTO section0.cr01notification (
+          isread, sender, receiver, isaction, relatedid, datatable,
+          active, createdate, writedate, createuid, writeuid, document, title, details
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, now(), now(), $8, $9, $10, $11, $12
+        )
+      `, [
+        false, // isread
+        senderId, // sender
+        receiverId, // receiver
+        needAction === true, // isaction
+        data.Id || null, // relatedid
+        data.datatable || null, // datatable
+        1, // active
+        0, // createuid
+        0, // writeuid
+        data.document || null, // document
+        title, // title
+        details // details
+      ]);
+      
+      console.log('In-app notification created:', { receiver: receiverId, title });
+    }
+  } 
+  // Process email notification (placeholder)
+  else if (sendType === 'email') {
+    // Email implementation placeholder
+    const message = 'Email notification (not implemented yet)';
+    messages.push(message);
+    console.log('Email notification requested but not implemented');
+  } 
+  // Other types (placeholder)
+  else {
+    const message = `Message type ${sendType} not implemented yet`;
+    messages.push(message);
+    console.log(`Message type ${sendType} not implemented`);
+  }
+  
+  return messages;
+}
+
+// API endpoint for sending messages
+app.post('/api/message', async (req, res) => {
+  try {
+    const { senderId, senderName, sendId, needAction, data } = req.body;
+    
+    if (!senderId || !senderName || !sendId) {
+      return res.status(400).json({ error: 'Missing required fields: senderId, senderName, and sendId are required' });
+    }
+    
+    // Get send node information (to find send types)
+    const sendNodeResult = await db.query(`
+      SELECT node_id, data 
+      FROM section0.cr07Cdiagram_objects 
+      WHERE id = $1
+    `, [sendId]);
+    
+    if (sendNodeResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Send node not found' });
+    }
+    
+    const sendNode = sendNodeResult.rows[0];
+    const sendNodeId = sendNode.node_id;
+    const sendKinds = sendNode.data?.sendKinds || [];
+    
+    if (!sendKinds.length) {
+      return res.status(400).json({ error: 'No send types specified in the send node' });
+    }
+    
+    console.log('Send node found:', { nodeId: sendNodeId, sendKinds });
+    
+    // Find connections where sendNode is the target (incoming connections)
+    const incomingConnectionsResult = await db.query(`
+      SELECT source_node_id 
+      FROM section0.cr07Ddiagram_connections 
+      WHERE target_node_id = $1
+    `, [sendNodeId]);
+    
+    const sourceNodeIds = incomingConnectionsResult.rows.map(row => row.source_node_id);
+    
+    // Find human nodes among source nodes
+    const humanNodesResult = await db.query(`
+      SELECT id, node_id, data 
+      FROM section0.cr07Cdiagram_objects 
+      WHERE node_id = ANY($1) AND node_type = 'human'
+    `, [sourceNodeIds]);
+    
+    // Process human nodes to find receivers
+    const humanRoleIds = new Set();
+    const humanIds = new Set();
+    
+    for (const humanNode of humanNodesResult.rows) {
+      const humanData = humanNode.data || {};
+      
+      // Check if the human node specifies roles
+      if (humanData.humanType === 'role' && Array.isArray(humanData.humanRoleIds)) {
+        humanData.humanRoleIds.forEach(roleId => humanRoleIds.add(roleId));
+      } 
+      // Otherwise, check for direct user IDs
+      else if (Array.isArray(humanData.humanIds)) {
+        humanData.humanIds.forEach(userId => humanIds.add(userId));
+      }
+    }
+    
+    // Get users by role
+    let usersByRole = [];
+    if (humanRoleIds.size > 0) {
+      const roleIdsArray = Array.from(humanRoleIds);
+      const usersByRoleResult = await db.query(`
+        SELECT id, email 
+        FROM section9nhansu.ns01taikhoannguoidung 
+        WHERE recordidchucdanh = ANY($1)
+      `, [roleIdsArray]).catch(() => ({ rows: [] }));
+      
+      usersByRole = usersByRoleResult.rows;
+    }
+    
+    // Get users by direct ID
+    let usersByDirectId = [];
+    if (humanIds.size > 0) {
+      const humanIdsArray = Array.from(humanIds);
+      const usersByDirectIdResult = await db.query(`
+        SELECT id, email 
+        FROM section9nhansu.ns01taikhoannguoidung 
+        WHERE id = ANY($1)
+      `, [humanIdsArray]).catch(() => ({ rows: [] }));
+      
+      usersByDirectId = usersByDirectIdResult.rows;
+    }
+    
+    // Combine users (ensuring unique IDs)
+    const uniqueReceivers = new Map();
+    
+    [...usersByRole, ...usersByDirectId].forEach(user => {
+      if (!uniqueReceivers.has(user.id)) {
+        uniqueReceivers.set(user.id, user);
+      }
+    });
+    
+    const receivers = Array.from(uniqueReceivers.keys());
+    
+    // Process each send type
+    const allMessages = [];
+    for (const sendType of sendKinds) {
+      const messages = await processMessageByType(sendType, senderId, senderName, needAction, data, receivers);
+      allMessages.push(...messages);
+    }
+    
+    res.json({ 
+      status: 'success', 
+      messages: allMessages,
+      receivers: receivers.length
+    });
+    
+  } catch (e) {
+    console.error('Failed to process message:', e);
+    res.status(500).json({ error: 'Failed to process message', details: e.message });
   }
 });
 
