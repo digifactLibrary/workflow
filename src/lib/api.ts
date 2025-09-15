@@ -123,3 +123,32 @@ export async function deleteDiagram(id: string): Promise<{ ok: boolean }> {
     method: 'DELETE',
   });
 }
+
+/**
+ * Trigger workflow interface and API function
+ */
+export interface TriggerPayload {
+  event: string;
+  mappingId: string;
+  userId?: string;
+  data?: any;
+}
+
+export interface TriggerResult {
+  triggered: {
+    event: string;
+    mappingId: string;
+    userId?: string;
+    timestamp: string;
+    data?: any;
+  };
+  nodes: any[];
+  connections: any[];
+}
+
+export async function triggerWorkflow(payload: TriggerPayload): Promise<TriggerResult> {
+  return fetchAPI<TriggerResult>('/trigger', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

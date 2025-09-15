@@ -35,6 +35,7 @@ export type AlgoNodeData = {
   humanPersonsByRole?: string[]
   humanRoles?: string[]
   humanRoleIds?: string[]
+  humanIds?: string[]  // New field for human IDs
   humanDepartments?: string[]
   humanDepartmentIds?: string[]
   // Flags to indicate if options have been initialized

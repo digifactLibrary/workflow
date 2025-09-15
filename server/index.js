@@ -108,9 +108,6 @@ async function ensureSchema() {
   
   // Auto-migrate existing data from JSON format to separate tables
   await migrateLegacyData()
-  
-  // Seed default options data if tables are empty
-  await seedDefaultOptions()
 }
 
 // Helper function to migrate existing data from diagrams.data to separate tables
@@ -201,13 +198,6 @@ async function migrateSingleDiagram(diagramId, data) {
   }
   
   console.log(`📝 Migrated diagram ${diagramId}`)
-}
-
-// Không cần seedDefaultOptions vì chúng ta lấy từ các bảng đã có sẵn
-async function seedDefaultOptions() {
-  // Chức năng này không cần thiết nữa vì chúng ta sẽ lấy dữ liệu từ các bảng hiện có
-  console.log('🔄 Bỏ qua quá trình seeding vì dữ liệu sẽ được lấy từ các bảng hiện có')
-  return
 }
 
 // Helper function to save diagram data to both formats (for compatibility)
@@ -663,6 +653,247 @@ app.post('/api/diagrams/:id/connections', authRequired, async (req, res) => {
   }
 })
 
+// API endpoint for workflow trigger processing
+app.post('/api/trigger', async (req, res) => {
+  try {
+    console.log('Request body:', req.body);
+    const { event, mappingId, userId, data = {} } = req.body || {};
+    
+    if (!event || !mappingId) {
+      return res.status(400).json({ error: 'Missing required parameters: event and mappingId are required' });
+    }
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required to check human node permissions' });
+    }
+
+    console.log('Processing trigger with:', { event, mappingId, userId });
+    
+    // Chuyển đổi mappingId thành số nếu là chuỗi số
+    const mappingIdValue = !isNaN(mappingId) ? Number(mappingId) : mappingId;
+    
+    // Find trigger nodes that match the event and mappingId - limit 1
+    const triggerNodesResult = await db.query(`
+      SELECT 
+        node_id,
+        data
+      FROM section0.cr07Cdiagram_objects 
+      WHERE node_type = 'trigger' AND 
+        data->'triggerEvents' @> $1::jsonb AND
+        data->'mappingIds' @> $2::jsonb
+      LIMIT 1
+    `, [JSON.stringify([event]), JSON.stringify([mappingIdValue])]);
+    
+    console.log('Found trigger nodes:', triggerNodesResult.rows.length);
+    
+    if (triggerNodesResult.rowCount === 0) {
+      return res.json({ 
+        message: 'No matching trigger nodes found', 
+        humanNodes: [],
+        nextNodes: [],
+        searchParams: { event, mappingId: mappingIdValue }
+      });
+    }
+    
+    // Get the trigger node ID (limit 1)
+    const triggerNodeId = triggerNodesResult.rows[0].node_id;
+    const triggerNodeData = triggerNodesResult.rows[0].data;
+    
+    // Lấy tất cả các connections từ trigger node (chỉ lấy connections mà source là trigger node)
+    const connectionsResult = await db.query(`
+      SELECT
+        c.id,
+        c.edge_id as "edgeId",
+        c.source_node_id as "sourceNodeId",
+        c.target_node_id as "targetNodeId",
+        c.source_handle as "sourceHandle",
+        c.target_handle as "targetHandle",
+        c.edge_type as "edgeType",
+        c.animated,
+        c.data as "connectionData",
+        c.style,
+        c.created_at as "createdAt",
+        c.updated_at as "updatedAt",
+        d.id as "diagramId",
+        d.name as "diagramName"
+      FROM section0.cr07Ddiagram_connections c
+      JOIN section0.cr07Bdiagrams d ON c.diagram_id = d.id
+      WHERE c.source_node_id = $1
+    `, [triggerNodeId]);
+    
+    const connections = connectionsResult.rows;
+
+    // Lấy các node mà trigger node là target của chúng (source nodes)
+    const incomingConnectionsResult = await db.query(`
+      SELECT
+        c.id,
+        c.edge_id as "edgeId",
+        c.source_node_id as "sourceNodeId", 
+        c.target_node_id as "targetNodeId"
+      FROM section0.cr07Ddiagram_connections c
+      WHERE c.target_node_id = $1
+    `, [triggerNodeId]);
+    
+    const sourceNodeIds = new Set();
+    incomingConnectionsResult.rows.forEach(conn => {
+      sourceNodeIds.add(conn.sourceNodeId);
+    });
+
+    // Lấy thông tin chi tiết về source nodes (nodes gửi đến trigger)
+    const sourceNodeIdsArray = Array.from(sourceNodeIds);
+    const sourceNodesResult = await db.query(`
+      SELECT
+        id,
+        node_id as "nodeId",
+        node_type as "nodeType",
+        position_x as "positionX",
+        position_y as "positionY",
+        width,
+        height,
+        data,
+        created_at as "createdAt",
+        updated_at as "updatedAt"
+      FROM section0.cr07Cdiagram_objects
+      WHERE node_id = ANY($1)
+    `, [sourceNodeIdsArray]);
+    
+    // Lấy các human nodes từ source nodes (các node human là source của trigger node)
+    const humanNodes = sourceNodesResult.rows
+      .filter(node => node.nodeType === 'human')
+      .map(node => ({
+        ...node,
+        positionX: parseFloat(node.positionX),
+        positionY: parseFloat(node.positionY),
+        width: node.width ? parseFloat(node.width) : undefined,
+        height: node.height ? parseFloat(node.height) : undefined
+      }));
+    
+    // Nếu có human nodes, kiểm tra quyền truy cập dựa trên thông tin người dùng
+    if (humanNodes.length > 0 && userId != 0) {
+      // Lấy thông tin người dùng từ database
+      const userResult = await db.query(`
+        SELECT 
+          manhanvien, 
+          recordidchucdanh
+        FROM section9nhansu.ns01taikhoannguoidung
+        WHERE id = $1
+      `, [userId]).catch(() => ({ rows: [] }));
+
+      if (userResult.rowCount === 0) {
+        return res.status(403).json({ 
+          error: 'User information not found',
+          humanNodes
+        });
+      }
+
+      const userInfo = userResult.rows[0];
+      const manhanvien = userInfo.manhanvien;
+      const recordidchucdanh = userInfo.recordidchucdanh;
+      
+      console.log('User info:', { manhanvien, recordidchucdanh });
+
+      // Kiểm tra xem người dùng có quyền với bất kỳ human node nào không
+      const hasPermission = humanNodes.some(node => {
+        // Kiểm tra quyền dựa trên ID nhân viên (humanIds) - ưu tiên sử dụng nếu có
+        if (node.data && Array.isArray(node.data.humanIds)) {
+          if (node.data.humanIds.includes(userId)) {
+            return true;
+          }
+        }
+        
+        // Fallback: Kiểm tra quyền dựa trên mã nhân viên (humanPersonsPersonal)
+        if (node.data && Array.isArray(node.data.humanPersonsPersonal)) {
+          if (node.data.humanPersonsPersonal.includes(manhanvien)) {
+            return true;
+          }
+        }
+        
+        // Kiểm tra quyền dựa trên vai trò (humanRoleIds)
+        if (node.data && Array.isArray(node.data.humanRoleIds) && recordidchucdanh) {
+          if (node.data.humanRoleIds.includes(recordidchucdanh) || 
+              node.data.humanRoleIds.includes(Number(recordidchucdanh))) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
+
+      if (!hasPermission) {
+        return res.status(403).json({ 
+          error: 'Unauthorized: User does not have permission for any human node',
+          userInfo: { manhanvien, recordidchucdanh },
+          humanNodes
+        });
+      }
+    }
+    
+    // Người dùng có quyền hoặc không có human nodes, tiếp tục lấy next nodes
+    const nextNodeIds = new Set();
+    connections.forEach(conn => {
+      nextNodeIds.add(conn.targetNodeId);
+    });
+    
+    // Lấy thông tin chi tiết về next nodes (nodes nhận từ trigger)
+    const nextNodeIdsArray = [...nextNodeIds];
+    const nextNodesResult = await db.query(`
+      SELECT
+        id,
+        node_id as "nodeId",
+        node_type as "nodeType",
+        position_x as "positionX",
+        position_y as "positionY",
+        width,
+        height,
+        data,
+        created_at as "createdAt",
+        updated_at as "updatedAt"
+      FROM section0.cr07Cdiagram_objects
+      WHERE node_id = ANY($1)
+    `, [nextNodeIdsArray]);
+
+    // Format next nodes
+    const nextNodes = nextNodesResult.rows.map(node => ({
+      ...node,
+      positionX: parseFloat(node.positionX),
+      positionY: parseFloat(node.positionY),
+      width: node.width ? parseFloat(node.width) : undefined,
+      height: node.height ? parseFloat(node.height) : undefined
+    }));
+    
+    // Format humanNodes theo yêu cầu
+    const formattedHumanNodes = humanNodes.map(node => {
+      return {
+        id: node.nodeId,
+        label: node.data?.label || 'Human',
+        empIds: node.data?.humanPersonsPersonal || [],
+        roleIds: node.data?.humanRoleIds || []
+      };
+    });
+    
+    // Return the results
+    res.json({
+      triggered: {
+        event,
+        mappingId: mappingIdValue,
+        userId,
+        timestamp: new Date().toISOString(),
+        data
+      },
+      triggerNode: {
+        nodeId: triggerNodeId,
+        data: triggerNodeData
+      },
+      connections: connections,
+      humanNodes: formattedHumanNodes,  // Human nodes được format theo yêu cầu
+      nextNodes: nextNodes     // Các node là target của trigger node
+    });
+  } catch (e) {
+    console.error('Error processing trigger:', e);
+    res.status(500).json({ error: 'Failed to process trigger', details: e.message });
+  }
+});
+
 // API endpoint to fetch options for DetailBar from existing database tables
 app.get('/api/options', async (req, res) => {
   try {
@@ -797,6 +1028,7 @@ app.get('/api/options', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch options' });
   }
 });
+
 
 ensureSchema()
   .then(() => {

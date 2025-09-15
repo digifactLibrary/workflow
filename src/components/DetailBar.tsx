@@ -5,6 +5,7 @@ import { Input } from './ui/input'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { PlusCircle, Send, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText, RefreshCw } from 'lucide-react'
+import type { AlgoNodeData } from '../flow/types'
 
 // Icon mapping for dynamic loading
 const iconMap = {
@@ -227,7 +228,80 @@ export function DetailBar() {
 
   const setHumanType = (value: 'personal' | 'role') => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanType: value })
+    
+    // Get current data to preserve some values
+    const data: any = selectedNode.data || {}
+    const currentType = data?.humanType ?? 'personal'
+    
+    // If type hasn't changed, no need to reset anything
+    if (currentType === value) return
+    
+    // Create an update object with type-safe properties
+    const resetData: Partial<AlgoNodeData> = { humanType: value }
+    
+    // Preserve humanIds and humanPersons fields as appropriate
+    if (value === 'personal') {
+      // When switching to personal type, clear role-based selections
+      resetData.humanPersonsByRole = []
+      resetData.humanRoles = []
+      resetData.humanRoleIds = []
+      resetData.humanDepartments = []
+      resetData.humanDepartmentIds = []
+      
+      // Keep existing personal selections if any
+      if (data.humanPersonsPersonal?.length > 0) {
+        resetData.humanPersonsPersonal = data.humanPersonsPersonal
+        resetData.humanPersons = data.humanPersonsPersonal
+        resetData.humanIds = data.humanIds || []
+      } else {
+        // Initialize with empty arrays
+        resetData.humanPersonsPersonal = []
+        resetData.humanPersons = []
+        resetData.humanIds = []
+      }
+    } else if (value === 'role') {
+      // When switching to role type, clear personal selections
+      resetData.humanPersonsPersonal = []
+      
+      // Keep existing role selections if any
+      if (data.humanRoles?.length > 0) {
+        resetData.humanRoles = data.humanRoles
+        resetData.humanRoleIds = data.humanRoleIds || []
+      } else {
+        // Initialize with empty arrays
+        resetData.humanRoles = []
+        resetData.humanRoleIds = []
+      }
+      
+      if (data.humanDepartments?.length > 0) {
+        resetData.humanDepartments = data.humanDepartments
+        resetData.humanDepartmentIds = data.humanDepartmentIds || []
+      } else {
+        // Initialize with empty arrays
+        resetData.humanDepartments = []
+        resetData.humanDepartmentIds = []
+      }
+      
+      if (data.humanRoles?.length > 0 && data.humanDepartments?.length > 0) {
+        // If both roles and departments exist, preserve role-based people
+        resetData.humanPersonsByRole = data.humanPersonsByRole || []
+        resetData.humanPersons = data.humanPersonsByRole || []
+      } else {
+        // Initialize with empty arrays
+        resetData.humanPersonsByRole = []
+        resetData.humanPersons = []
+      }
+    }
+    
+    // Set flag to indicate initialization
+    if (value === 'personal') {
+      resetData.humanPersonalPeopleInitialized = true
+    } else {
+      resetData.humanRolePeopleInitialized = true
+    }
+    
+    // Update node data with reset values
+    updateNodeData(selectedNode.id, resetData)
   }
 
   const toggleHumanPersonPersonal = (name: string) => {
@@ -237,7 +311,30 @@ export function DetailBar() {
     const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
     const byRole: string[] = (data?.humanPersonsByRole ?? []) as string[]
     const union = Array.from(new Set<string>([...next, ...byRole]))
-    updateNodeData(selectedNode.id, { humanPersonsPersonal: next, humanPersons: union })
+    
+    // Tìm option đầy đủ để lấy ID
+    const selectedOption = humanPeopleOptions.find(opt => opt.value === name)
+    
+    // Lấy danh sách IDs hiện tại
+    const currentIds: string[] = (data?.humanIds ?? []) as string[]
+    
+    // Thêm hoặc xóa ID tùy thuộc vào trạng thái
+    let nextIds = [...currentIds]
+    if (selectedOption) {
+      if (current.includes(name)) {
+        // Xóa ID nếu đã bỏ chọn
+        nextIds = nextIds.filter(id => id !== selectedOption.id)
+      } else {
+        // Thêm ID nếu đã chọn
+        nextIds.push(selectedOption.id)
+      }
+    }
+    
+    updateNodeData(selectedNode.id, { 
+      humanPersonsPersonal: next, 
+      humanPersons: union,
+      humanIds: nextIds
+    })
   }
 
   const toggleHumanPersonRole = (name: string) => {
@@ -636,8 +733,11 @@ export function DetailBar() {
           <div className="space-y-2">
             <div className="text-xs font-medium">Người</div>
             <div className="flex flex-wrap gap-2">
-              {humanPersonTypeOptions.map(({ value, label }) => {
-                const checked = ((selectedNode.data as any)?.humanType ?? 'personal') === value
+              {humanPersonTypeOptions.map((option) => {
+                const value = option.value as 'personal' | 'role';
+                const label = option.label;
+                const checked = ((selectedNode.data as any)?.humanType ?? 'personal') === value;
+                
                 return (
                   <button
                     key={value}
