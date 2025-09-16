@@ -29,6 +29,7 @@
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.542.0",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^7.0.6",
     "pg": "^8.16.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

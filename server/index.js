@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import pkg from 'pg'
 import fetch from 'node-fetch'
+import nodemailer from 'nodemailer'
 
 const { Pool } = pkg
 
@@ -336,6 +337,47 @@ async function loadDiagramWithRelations(diagramId, ownerId) {
 }
 
 const genId = (p = 'd') => `${p}_${Date.now()}_${Math.round(Math.random() * 1e6)}`
+
+// Helper function for sending email via SMTP
+async function sendEmailSmtp(to, subject, body) {
+  try {
+    // Check if SMTP configuration exists
+    const smtpHost = process.env.SMTPHOST;
+    const smtpPort = process.env.SMTPPORT;
+    const smtpUser = process.env.SMTPUSER;
+    const smtpPassword = process.env.SMTPPASSWORD;
+    
+    if (!smtpHost || !smtpPort || !smtpUser || !smtpPassword) {
+      throw new Error('SMTP configuration missing');
+    }
+    
+    // Create transporter
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === '465', // true for 465, false for other ports
+      auth: {
+        user: smtpUser,
+        pass: smtpPassword
+      }
+    });
+    
+    // Send mail
+    const info = await transporter.sendMail({
+      from: `"Workflow Notification" <${smtpUser}>`,
+      to: to,
+      subject: subject,
+      text: body,
+      html: body.replace(/\n/g, '<br>')
+    });
+    
+    console.log('Email sent via SMTP:', { messageId: info.messageId, recipient: to });
+    return true;
+  } catch (error) {
+    console.error('SMTP Email error:', error);
+    return false;
+  }
+}
 
 // Auth helpers
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
@@ -954,35 +996,7 @@ app.post('/api/trigger', async (req, res) => {
     const sendNodes = nextNodes.filter(node => node.nodeType === 'send');
     console.log(`Found ${sendNodes.length} send nodes to process`);
     
-    // Gọi API message cho từng node send
-    const messagePromises = sendNodes.map(sendNode => {
-      const messageBody = {
-        senderId: userId,
-        senderName: userName,
-        sendId: sendNode.id,
-        needAction,
-        data: enrichedData
-      };
-      
-      // Thực hiện HTTP POST request đến API message endpoint
-      return fetch(`${req.protocol}://${req.get('host')}/api/message`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(messageBody)
-      }).then(response => response.json())
-        .catch(err => {
-          console.error(`Error calling message API for send node ${sendNode.id}:`, err);
-          return { error: err.message, sendNodeId: sendNode.id };
-        });
-    });
-    
-    // Đợi tất cả các API calls hoàn tất
-    const messageResults = await Promise.all(messagePromises);
-    console.log("Message API call results:", messageResults);
-    
-    // Return the results
+    // Chuẩn bị kết quả response ngay để trả về cho client
     const responseData = {
       triggered: {
         eventName,
@@ -998,13 +1012,53 @@ app.post('/api/trigger', async (req, res) => {
       connections: connections,
       humanNodes: formattedHumanNodes,
       nextNodes: nextNodes,
-      messages: messageResults
+      messages: {
+        status: 'processing',
+        sendNodesCount: sendNodes.length
+      }
     };
 
-    console.log("Response Data:", responseData);
-
+    // Trả kết quả ngay cho client
     res.json(responseData);
-    console.log("Trigger processed successfully");
+    console.log("Trigger processed successfully, messages being sent asynchronously");
+    
+    // Xử lý gửi message trong background sau khi đã trả response
+    // Tách thành một Promise riêng để không chặn main thread
+    (async () => {
+      try {
+        // Gọi API message cho từng node send
+        const messagePromises = sendNodes.map(sendNode => {
+          const messageBody = {
+            senderId: userId,
+            senderName: userName,
+            sendId: sendNode.id,
+            needAction,
+            data: enrichedData
+          };
+          
+          // Thực hiện HTTP POST request đến API message endpoint
+          return fetch(`${req.protocol}://${req.get('host')}/api/message`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(messageBody)
+          }).then(response => response.json())
+            .catch(err => {
+              console.error(`Error calling message API for send node ${sendNode.id}:`, err);
+              return { error: err.message, sendNodeId: sendNode.id };
+            });
+        });
+        
+        // Xử lý các API calls trong background
+        const messageResults = await Promise.all(messagePromises);
+        console.log("Background message API call results:", messageResults);
+      } catch (error) {
+        console.error("Error in background message processing:", error);
+      }
+    })();
+    
+    // Function đã trả về response rồi, phần code phía sau sẽ chạy bất đồng bộ
   } catch (e) {
     console.error('Error processing trigger:', e);
     res.status(500).json({ error: 'Failed to process trigger', details: e.message });
@@ -1012,12 +1066,12 @@ app.post('/api/trigger', async (req, res) => {
 });
 
 // Helper function to process messages by type
-async function processMessageByType(sendType, senderId, senderName, needAction, data, receivers) {
+async function processMessageByType(sendType, senderId, senderName, needAction, data, receiversIds, receiversData) {
   let messages = [];
   
   // Process in-app notifications
   if (sendType === 'inapp') {
-    for (const receiverId of receivers) {
+    for (const receiverId of receiversIds) {
       if (!receiverId) continue;
       
       // Prepare notification details
@@ -1053,12 +1107,87 @@ async function processMessageByType(sendType, senderId, senderName, needAction, 
       console.log('In-app notification created:', { receiver: receiverId, title });
     }
   } 
-  // Process email notification (placeholder)
+  // Process email notifications (non-blocking, best effort)
   else if (sendType === 'email') {
-    // Email implementation placeholder
-    const message = 'Email notification (not implemented yet)';
+    // Get email configuration from environment variables
+    const mailApiUrl = process.env.MAILURL;
+    const mailApiKey = process.env.MAILAPIKEY;
+    
+    if (!mailApiUrl || !mailApiKey) {
+      console.error('Email configuration missing: MAILURL or MAILAPIKEY not defined in environment');
+      const message = 'Email notification failed: configuration missing';
+      messages.push(message);
+      return messages;
+    }
+    
+    // Prepare email content
+    const subject = data.eventName ? `Thông báo ${data.eventName}` : 'Thông báo mới';
+    const body = `Người gửi: ${senderName}\n${data.eventName || ''} ${data.modelName || ''}: ${data.objectDisplayName || ''}`;
+    
+    // Track how many email sending tasks we've started
+    let emailTasksStarted = 0;
+    
+    // Process each receiver that has an email address (best effort, non-blocking)
+    for (const receiver of receiversData) {
+      if (!receiver || !receiver.email) continue;
+      
+      // Prepare payload for email API
+      const payload = {
+        to: receiver.email,
+        subject: subject,
+        body: body,
+        html_body: body.replace(/\n/g, '<br>') // Convert line breaks to HTML
+      };
+      
+      // Configure request options
+      const options = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': mailApiKey
+        },
+        body: JSON.stringify(payload)
+      };
+      
+      console.log('Email API request scheduled:', {
+        url: mailApiUrl,
+        recipient: receiver.email,
+        subject: subject
+      });
+      
+      // Increment the counter for scheduled email tasks
+      emailTasksStarted++;
+      
+      // Send email via API with SMTP fallback (non-blocking, best effort)
+      fetch(mailApiUrl, options)
+        .then(response => {
+          return response.text().then(text => ({ status: response.status, text }));
+        })
+        .then(({ status, text }) => {
+          console.log('Email API response:', { recipient: receiver.email, status, text });
+          if (status !== 200 && status !== 201) {
+            console.error(`Email API error for ${receiver.email}: ${status} - ${text}`);
+            // API failed, attempt SMTP fallback
+            console.log(`Attempting SMTP fallback for ${receiver.email}`);
+            return sendEmailSmtp(receiver.email, subject, body);
+          }
+          return true;
+        })
+        .catch(error => {
+          console.error(`Failed to send email to ${receiver.email} via API:`, error);
+          // API request failed, attempt SMTP fallback
+          console.log(`Attempting SMTP fallback for ${receiver.email} after API failure`);
+          return sendEmailSmtp(receiver.email, subject, body);
+        })
+        .catch(error => {
+          // Both API and SMTP failed
+          console.error(`All email sending methods failed for ${receiver.email}:`, error);
+        });
+    }
+    
+    // Add a summary message about the emails being sent in the background
+    const message = `Sending ${emailTasksStarted} emails in the background`;
     messages.push(message);
-    console.log('Email notification requested but not implemented');
   } 
   // Other types (placeholder)
   else {
@@ -1140,7 +1269,7 @@ app.post('/api/message', async (req, res) => {
       const usersByRoleResult = await db.query(`
         SELECT id, email 
         FROM section9nhansu.ns01taikhoannguoidung 
-        WHERE recordidchucdanh = ANY($1)
+        WHERE recordidchucdanh = ANY($1) AND trangthai = 'Đang làm việc'
       `, [roleIdsArray]).catch(() => ({ rows: [] }));
       
       usersByRole = usersByRoleResult.rows;
@@ -1153,13 +1282,13 @@ app.post('/api/message', async (req, res) => {
       const usersByDirectIdResult = await db.query(`
         SELECT id, email 
         FROM section9nhansu.ns01taikhoannguoidung 
-        WHERE id = ANY($1)
+        WHERE id = ANY($1) AND trangthai = 'Đang làm việc'
       `, [humanIdsArray]).catch(() => ({ rows: [] }));
       
       usersByDirectId = usersByDirectIdResult.rows;
     }
     
-    // Combine users (ensuring unique IDs)
+    // Combine users (ensuring unique IDs and including email addresses)
     const uniqueReceivers = new Map();
     
     [...usersByRole, ...usersByDirectId].forEach(user => {
@@ -1168,19 +1297,21 @@ app.post('/api/message', async (req, res) => {
       }
     });
     
-    const receivers = Array.from(uniqueReceivers.keys());
+    // Create two arrays: one for IDs and one for full user objects (with emails)
+    const receiversIds = Array.from(uniqueReceivers.keys());
+    const receiversData = Array.from(uniqueReceivers.values());
     
     // Process each send type
     const allMessages = [];
     for (const sendType of sendKinds) {
-      const messages = await processMessageByType(sendType, senderId, senderName, needAction, data, receivers);
+      const messages = await processMessageByType(sendType, senderId, senderName, needAction, data, receiversIds, receiversData);
       allMessages.push(...messages);
     }
     
     res.json({ 
       status: 'success', 
       messages: allMessages,
-      receivers: receivers.length
+      receivers: receiversIds.length
     });
     
   } catch (e) {
@@ -1325,11 +1456,45 @@ app.get('/api/options', async (req, res) => {
 });
 
 
+// Check SMTP configuration at startup
+function checkSmtpConfig() {
+  const smtpHost = process.env.SMTPHOST;
+  const smtpPort = process.env.SMTPPORT;
+  const smtpUser = process.env.SMTPUSER;
+  const smtpPassword = process.env.SMTPPASSWORD;
+  
+  if (!smtpHost || !smtpPort || !smtpUser || !smtpPassword) {
+    console.warn('⚠️ SMTP configuration is incomplete. Email fallback will not be available.');
+    return false;
+  }
+  
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === '465',
+      auth: {
+        user: smtpUser,
+        pass: smtpPassword
+      }
+    });
+    
+    console.log('✅ SMTP configuration validated. Email fallback is available.');
+    return true;
+  } catch (error) {
+    console.error('❌ SMTP configuration error:', error);
+    return false;
+  }
+}
+
 ensureSchema()
   .then(() => {
-    app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`))
+    // Check SMTP config (but don't block startup if it fails)
+    checkSmtpConfig();
+    
+    app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
   })
   .catch((e) => {
-    console.error('Failed to init schema', e)
-    process.exit(1)
+    console.error('Failed to init schema', e);
+    process.exit(1);
   })
