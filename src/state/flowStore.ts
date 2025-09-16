@@ -71,6 +71,7 @@ export const useFlowStore = create<FlowState>()(
               e.target = s
               e.targetHandle = sh2
             }
+            if (!e.markerEnd) { e.markerEnd = { type: MarkerType.ArrowClosed } }
             return e
           }),
         }
