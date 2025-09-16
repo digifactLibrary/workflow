@@ -1,5 +1,5 @@
 import type { Node, Edge } from '@xyflow/react'
-import { Position } from '@xyflow/react'
+import { Position, MarkerType } from '@xyflow/react'
 
 export type AlgoNodeType =
   | 'start'
@@ -139,10 +139,11 @@ export function diagramConnectionToAlgoEdge(conn: DiagramConnection): AlgoEdge {
     target: conn.targetNodeId,
     sourceHandle: conn.sourceHandle,
     targetHandle: conn.targetHandle,
-    type: conn.edgeType,
-    animated: conn.animated,
+    type: conn.edgeType || 'dir',
+    animated: conn.animated ?? true,
     data: conn.data,
     style: conn.style,
+    markerEnd: { type: MarkerType.ArrowClosed },
   }
 }
 
