@@ -80,7 +80,11 @@ export default function App() {
     targetType: 'node' | 'edge'
     targetId: string
   } | null>(null)
-  const hideContextMenu = useCallback(() => setContextMenu(null), [])
+  const suppressContextMenuCloseRef = useRef(0)
+  const hideContextMenu = useCallback(() => {
+    suppressContextMenuCloseRef.current = 0
+    setContextMenu(null)
+  }, [])
   const openContextMenu = useCallback(
     (event: ReactMouseEvent, target: { type: 'node' | 'edge'; id: string }) => {
       event.preventDefault()
@@ -104,6 +108,7 @@ export default function App() {
   }, [contextMenu, toggleDetailBar, hideContextMenu])
   const handleNodeContextMenu = useCallback(
     (event: ReactMouseEvent, node: Node) => {
+      suppressContextMenuCloseRef.current = Date.now()
       setSelection({ nodeIds: [node.id], edgeIds: [] })
       openContextMenu(event, { type: 'node', id: node.id })
     },
@@ -111,6 +116,7 @@ export default function App() {
   )
   const handleEdgeContextMenu = useCallback(
     (event: ReactMouseEvent, edge: Edge) => {
+      suppressContextMenuCloseRef.current = Date.now()
       setSelection({ nodeIds: [], edgeIds: [edge.id] })
       openContextMenu(event, { type: 'edge', id: edge.id })
     },
@@ -205,7 +211,12 @@ export default function App() {
             fitView
             proOptions={{ hideAttribution: true }}
             onSelectionChange={(params) => {
-              hideContextMenu()
+              const timestamp = suppressContextMenuCloseRef.current
+              suppressContextMenuCloseRef.current = 0
+              const skipHide = timestamp !== 0 && Date.now() - timestamp < 100
+              if (!skipHide) {
+                hideContextMenu()
+              }
               setSelection({ nodeIds: params.nodes?.map((n) => n.id) ?? [], edgeIds: params.edges?.map((e) => e.id) ?? [] })
             }}
           >
