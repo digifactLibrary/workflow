@@ -19,6 +19,7 @@ type FlowState = Diagram & {
   autosave: boolean
   selection: { nodeIds: string[]; edgeIds: string[] }
   history: { past: Diagram[]; future: Diagram[] }
+  editingNodeId?: string
   setDiagram: (d: Diagram, push?: boolean) => void
   pushHistory: (d?: Diagram) => void
   undo: () => void
@@ -31,6 +32,7 @@ type FlowState = Diagram & {
   addTemplate: (name: 'linear' | 'ifElse' | 'parallel', at: { x: number; y: number }) => void
   deleteSelection: () => void
   setSelection: (sel: FlowState['selection']) => void
+  setEditingNode: (id?: string) => void
   setAutosave: (v: boolean) => void
   updateNodeData: (id: string, data: Partial<AlgoNodeData>) => void
   updateEdgeData: (id: string, data: Record<string, any>) => void
@@ -45,6 +47,7 @@ export const useFlowStore = create<FlowState>()(
       autosave: true,
       selection: { nodeIds: [], edgeIds: [] },
       history: { past: [], future: [] },
+      editingNodeId: undefined,
 
       setDiagram: (d, push = true) => set((s) => {
         // migrate any legacy 'b-*' handle ids (temporary from a previous build)
@@ -77,7 +80,7 @@ export const useFlowStore = create<FlowState>()(
         }
         if (push) s.history.past.push({ nodes: s.nodes, edges: s.edges })
         s.history.future = []
-        return next
+        return { ...next, editingNodeId: undefined }
       }),
 
       pushHistory: (d) => set((s) => {
@@ -101,7 +104,7 @@ export const useFlowStore = create<FlowState>()(
         return { nodes: next.nodes, edges: next.edges }
       }),
 
-      clear: () => set({ ...initial, history: { past: [], future: [] } }),
+      clear: () => set({ ...initial, history: { past: [], future: [] }, editingNodeId: undefined }),
 
       onNodesChange: (changes) => set((s) => {
         const prev = { nodes: s.nodes, edges: s.edges }
@@ -310,10 +313,16 @@ export const useFlowStore = create<FlowState>()(
         const edges = s.edges.filter((e) => !edgeIds.includes(e.id) && !nodeIds.includes(e.source) && !nodeIds.includes(e.target))
         s.history.past.push(prev)
         s.history.future = []
-        return { nodes, edges, selection: { nodeIds: [], edgeIds: [] } }
+        const editingNodeId = s.editingNodeId && nodeIds.includes(s.editingNodeId) ? undefined : s.editingNodeId
+        return { nodes, edges, selection: { nodeIds: [], edgeIds: [] }, editingNodeId }
       }),
 
-      setSelection: (sel) => set({ selection: sel }),
+      setSelection: (sel) => set((s) => {
+        const editingNodeId = s.editingNodeId
+        const keepEditing = editingNodeId ? sel.nodeIds.includes(editingNodeId) : false
+        return { selection: sel, editingNodeId: keepEditing ? editingNodeId : undefined }
+      }),
+      setEditingNode: (id) => set({ editingNodeId: id }),
 
       setAutosave: (v) => set({ autosave: v }),
     })

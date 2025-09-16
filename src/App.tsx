@@ -73,6 +73,7 @@ export default function App() {
   const onConnect = useFlowStore((s) => s.onConnect)
   const addNode = useFlowStore((s) => s.addNodeFromType)
   const setSelection = useFlowStore((s) => s.setSelection)
+  const setEditingNode = useFlowStore((s) => s.setEditingNode)
   const autosave = useFlowStore((s) => s.autosave)
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -80,9 +81,9 @@ export default function App() {
     targetType: 'node' | 'edge'
     targetId: string
   } | null>(null)
-  const suppressContextMenuCloseRef = useRef(0)
+  const contextMenuRef = useRef<typeof contextMenu>(contextMenu)
   const hideContextMenu = useCallback(() => {
-    suppressContextMenuCloseRef.current = 0
+    contextMenuRef.current = null
     setContextMenu(null)
   }, [])
   const openContextMenu = useCallback(
@@ -97,30 +98,36 @@ export default function App() {
         if (x + menuWidth > innerWidth) x = Math.max(innerWidth - menuWidth - 8, 8)
         if (y + menuHeight > innerHeight) y = Math.max(innerHeight - menuHeight - 8, 8)
       }
-      setContextMenu({ x, y, targetType: target.type, targetId: target.id })
+      const nextMenu = { x, y, targetType: target.type, targetId: target.id }
+      contextMenuRef.current = nextMenu
+      setContextMenu(nextMenu)
     },
     []
   )
+  useEffect(() => {
+    contextMenuRef.current = contextMenu
+  }, [contextMenu])
   const handleShowDetails = useCallback(() => {
-    if (!contextMenu) return
+    if (!contextMenuRef.current) return
     toggleDetailBar(true)
+    setEditingNode(undefined)
     hideContextMenu()
-  }, [contextMenu, toggleDetailBar, hideContextMenu])
+  }, [toggleDetailBar, hideContextMenu, setEditingNode])
   const handleNodeContextMenu = useCallback(
     (event: ReactMouseEvent, node: Node) => {
-      suppressContextMenuCloseRef.current = Date.now()
+      setEditingNode(undefined)
       setSelection({ nodeIds: [node.id], edgeIds: [] })
       openContextMenu(event, { type: 'node', id: node.id })
     },
-    [openContextMenu, setSelection]
+    [openContextMenu, setSelection, setEditingNode]
   )
   const handleEdgeContextMenu = useCallback(
     (event: ReactMouseEvent, edge: Edge) => {
-      suppressContextMenuCloseRef.current = Date.now()
+      setEditingNode(undefined)
       setSelection({ nodeIds: [], edgeIds: [edge.id] })
       openContextMenu(event, { type: 'edge', id: edge.id })
     },
-    [openContextMenu, setSelection]
+    [openContextMenu, setSelection, setEditingNode]
   )
 
   const { screenToFlowPosition } = useReactFlow()
@@ -188,16 +195,19 @@ export default function App() {
             onConnect={onConnect}
             onNodeDoubleClick={(_, node) => {
               setSelection({ nodeIds: [node.id], edgeIds: [] })
+              setEditingNode(node.id)
               hideContextMenu()
             }}
             onEdgeDoubleClick={(_, edge) => {
               setSelection({ nodeIds: [], edgeIds: [edge.id] })
+              setEditingNode(undefined)
               hideContextMenu()
             }}
             onNodeContextMenu={handleNodeContextMenu}
             onEdgeContextMenu={handleEdgeContextMenu}
             onPaneClick={() => {
               toggleDetailBar(false)
+              setEditingNode(undefined)
               hideContextMenu()
             }}
             nodeTypes={nodeTypes}
@@ -211,11 +221,14 @@ export default function App() {
             fitView
             proOptions={{ hideAttribution: true }}
             onSelectionChange={(params) => {
-              const timestamp = suppressContextMenuCloseRef.current
-              suppressContextMenuCloseRef.current = 0
-              const skipHide = timestamp !== 0 && Date.now() - timestamp < 100
-              if (!skipHide) {
-                hideContextMenu()
+              const menu = contextMenuRef.current
+              if (menu) {
+                const targetSelected =
+                  (menu.targetType === 'node' && params.nodes?.some((n) => n.id === menu.targetId)) ||
+                  (menu.targetType === 'edge' && params.edges?.some((e) => e.id === menu.targetId))
+                if (!targetSelected) {
+                  hideContextMenu()
+                }
               }
               setSelection({ nodeIds: params.nodes?.map((n) => n.id) ?? [], edgeIds: params.edges?.map((e) => e.id) ?? [] })
             }}

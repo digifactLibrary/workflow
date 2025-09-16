@@ -5,17 +5,25 @@ import { useFlowStore } from '../state/flowStore'
 
 export default function NodeLabel({ id, value, className, placeholder }: { id: string; value?: string; className?: string; placeholder?: string }) {
   const update = useFlowStore((s) => s.updateNodeData)
-  const [editing, setEditing] = useState(false)
+  const editingNodeId = useFlowStore((s) => s.editingNodeId)
+  const setEditingNode = useFlowStore((s) => s.setEditingNode)
   const [text, setText] = useState(value ?? '')
   const ref = useRef<HTMLInputElement>(null)
 
+  const editing = editingNodeId === id
+
   useEffect(() => setText(value ?? ''), [value])
-  useEffect(() => { if (editing) ref.current?.focus() }, [editing])
+  useEffect(() => {
+    if (editing) {
+      setText(value ?? '')
+      ref.current?.focus()
+    }
+  }, [editing, value])
 
   const commit = () => {
     const label = text.trim() === '' ? (placeholder ?? '') : text
     update(id, { label })
-    setEditing(false)
+    setEditingNode(undefined)
   }
 
   if (editing) {
@@ -28,8 +36,8 @@ export default function NodeLabel({ id, value, className, placeholder }: { id: s
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') {
-            setEditing(false)
             setText(value ?? '')
+            setEditingNode(undefined)
           }
         }}
         className={cn('h-7 px-2 py-1', className)}
@@ -38,9 +46,14 @@ export default function NodeLabel({ id, value, className, placeholder }: { id: s
   }
 
   return (
-    <span className={cn('cursor-text', className)} onDoubleClick={() => setEditing(true)}>
+    <span
+      className={cn('cursor-text', className)}
+      onDoubleClick={() => {
+        setText(value ?? '')
+        setEditingNode(id)
+      }}
+    >
       {value ?? placeholder ?? 'Label'}
     </span>
   )
 }
-
