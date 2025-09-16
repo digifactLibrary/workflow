@@ -4,7 +4,7 @@ import { useOptionsStore } from '../state/optionsStore'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
-import { PlusCircle, Send, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText, RefreshCw } from 'lucide-react'
+import { PlusCircle, Send, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText, RefreshCw, Plus, Check } from 'lucide-react'
 import type { AlgoNodeData } from '../flow/types'
 
 // Icon mapping for dynamic loading
@@ -21,6 +21,123 @@ const iconMap = {
   MessageSquareText,
   RefreshCw,
   Send,
+  Plus,
+  Check,
+}
+
+// Component tái sử dụng cho các panel toggle buttons
+interface ToggleButtonsPanelProps {
+  title: string;
+  options: Array<{ value: string; label: string; Icon?: React.ComponentType<any> }>;
+  selectedValues: string[];
+  onToggle: (value: string) => void;
+  onSelectAll?: () => void;
+  onClearAll?: () => void;
+  className?: string;
+  searchBox?: React.ReactNode; // Prop để truyền vào search box
+}
+
+function ToggleButtonsPanel({ 
+  title, 
+  options, 
+  selectedValues, 
+  onToggle, 
+  onSelectAll, 
+  onClearAll,
+  className = "",
+  searchBox
+}: ToggleButtonsPanelProps) {
+  // Tách options thành đã chọn và chưa chọn
+  const selectedOptions = options.filter(option => selectedValues.includes(option.value));
+  const unselectedOptions = options.filter(option => !selectedValues.includes(option.value));
+  
+  // Tính toán độ cao mặc định cho mỗi panel dựa vào className đã truyền vào
+  const maxHeightClass = className || "max-h-48";
+  
+  return (
+    <div className="space-y-2">
+      {/* Header cố định */}
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium">{title}</div>
+        {(onSelectAll || onClearAll) && (
+          <div className="flex items-center gap-2">
+            {onSelectAll && (
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={onSelectAll}>
+                Chọn tất cả
+              </Button>
+            )}
+            {onClearAll && (
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onClearAll}>
+                Bỏ chọn tất cả
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Search box (nếu được cung cấp) */}
+      {searchBox}
+      
+      {/* Container cho các panel riêng biệt */}
+      <div className="space-y-3">
+        {/* Panel hiển thị các options đã chọn */}
+        {selectedOptions.length > 0 && (
+          <div className="border rounded-lg">
+            <div className="p-2 border-b">
+              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                <Check className="h-3 w-3" /> Đã chọn
+              </div>
+            </div>
+            <div className={`p-2 overflow-auto ${maxHeightClass}`}>
+              <div className="flex flex-wrap gap-2">
+                {selectedOptions.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className="text-xs px-3 py-1.5 rounded-full border transition bg-primary text-primary-foreground border-primary shadow-sm"
+                    onClick={() => onToggle(value)}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      {Icon && <Icon className="h-3.5 w-3.5" />}
+                      {label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Panel hiển thị các options chưa chọn */}
+        {unselectedOptions.length > 0 && (
+          <div className="border rounded-lg">
+            <div className="p-2 border-b">
+              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                <Plus className="h-3 w-3" /> Chưa chọn
+              </div>
+            </div>
+            <div className={`p-2 overflow-auto ${maxHeightClass}`}>
+              <div className="flex flex-wrap gap-2">
+                {unselectedOptions.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className="text-xs px-3 py-1.5 rounded-full border transition bg-transparent hover:bg-muted border-input text-foreground/80"
+                    onClick={() => onToggle(value)}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      {Icon && <Icon className="h-3.5 w-3.5" />}
+                      {label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function DetailBar() {
@@ -517,6 +634,16 @@ export function DetailBar() {
     if (!selectedNode) return
     updateNodeData(selectedNode.id, { triggerEvents: [] })
   }
+  
+  const selectAllSendKinds = () => {
+    if (!selectedNode) return
+    updateNodeData(selectedNode.id, { sendKinds: sendKindOptions.map((o) => o.value) })
+  }
+  
+  const clearAllSendKinds = () => {
+    if (!selectedNode) return
+    updateNodeData(selectedNode.id, { sendKinds: [] })
+  }
 
   const selectAllModules = () => {
     if (!selectedNode) return
@@ -578,87 +705,37 @@ export function DetailBar() {
 
       {selectedNode?.type === 'trigger' ? (
         <div className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium">Sự kiện trigger</div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAllTriggerEvents}>
-                  Chọn tất cả
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={clearAllTriggerEvents}>
-                  Bỏ chọn tất cả
-                </Button>
-              </div>
-            </div>
-            <div className="border rounded-lg p-2 max-h-48 overflow-auto">
-              <div className="flex flex-wrap gap-2">
-                {triggerEventOptions.map(({ value, label, Icon }) => {
-                  const checked = ((selectedNode.data as any)?.triggerEvents ?? []).includes(value)
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                        checked
-                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                          : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                      }`}
-                      onClick={() => toggleTriggerEvent(value)}
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <Icon className="h-3.5 w-3.5" />
-                        {label}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
+          <ToggleButtonsPanel
+            title="Sự kiện trigger"
+            options={triggerEventOptions}
+            selectedValues={(selectedNode.data as any)?.triggerEvents ?? []}
+            onToggle={toggleTriggerEvent}
+            onSelectAll={selectAllTriggerEvents}
+            onClearAll={clearAllTriggerEvents}
+            className="max-h-48"
+          />
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium">Module hoạt động</div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAllModules}>
-                  Chọn tất cả
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={clearAllModules}>
-                  Bỏ chọn tất cả
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Input
-                value={moduleQuery}
-                placeholder="Tìm kiếm module..."
-                onChange={(e) => setModuleQuery(e.target.value)}
-              />
-              <div className="border rounded-lg p-2 max-h-60 overflow-auto">
-                <div className="flex flex-wrap gap-2">
-                  {filteredModules.map((opt) => {
-                    const checked = ((selectedNode.data as any)?.triggerModules ?? []).includes(opt.value)
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                          checked
-                            ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                            : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                        }`}
-                        onClick={() => toggleTriggerModule(opt.value)}
-                      >
-                        {opt.label}
-                      </button>
-                    )
-                  })}
-                  {filteredModules.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">Không có kết quả</div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            <ToggleButtonsPanel
+              title="Module hoạt động"
+              options={filteredModules.map(opt => ({ value: opt.value, label: opt.label }))}
+              selectedValues={(selectedNode.data as any)?.triggerModules ?? []}
+              onToggle={toggleTriggerModule}
+              onSelectAll={selectAllModules}
+              onClearAll={clearAllModules}
+              className="max-h-28"
+              searchBox={
+                <Input
+                  value={moduleQuery}
+                  placeholder="Tìm kiếm module..."
+                  onChange={(e) => setModuleQuery(e.target.value)}
+                  className="mb-2 mt-1"
+                />
+              }
+            />
+            {filteredModules.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Không có kết quả</div>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -699,31 +776,15 @@ export function DetailBar() {
 
       {selectedNode?.type === 'send' ? (
         <div className="mt-4 space-y-2">
-          <div className="text-xs font-medium">Kiểu gửi tin nhắn</div>
-          <div className="border rounded-lg p-2">
-            <div className="flex flex-wrap gap-2">
-              {sendKindOptions.map(({ value, label, Icon }) => {
-                const checked = ((selectedNode.data as any)?.sendKinds ?? []).includes(value)
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                      checked
-                        ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                        : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                    }`}
-                    onClick={() => toggleSendKind(value)}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <Icon className="h-3.5 w-3.5" />
-                      {label}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+          <ToggleButtonsPanel
+            title="Kiểu gửi tin nhắn"
+            options={sendKindOptions}
+            selectedValues={(selectedNode.data as any)?.sendKinds ?? []}
+            onToggle={toggleSendKind}
+            onSelectAll={selectAllSendKinds}
+            onClearAll={clearAllSendKinds}
+            className="max-h-48"
+          />
         </div>
       ) : null}
 
@@ -759,38 +820,26 @@ export function DetailBar() {
           {/* If Cá nhân: show People only */}
           {(((selectedNode.data as any)?.humanType ?? 'personal') === 'personal') ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-medium">Người</div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAllPersonalPeople}>Chọn tất cả</Button>
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={clearAllPersonalPeople}>Bỏ chọn tất cả</Button>
-                </div>
-              </div>
-              <Input value={humanPersonQuery} placeholder="Tìm kiếm người..." onChange={(e) => setHumanPersonQuery(e.target.value)} />
-              <div className="border rounded-lg p-2 max-h-60 overflow-auto">
-                <div className="flex flex-wrap gap-2">
-                  {filteredHumanPeople.map((opt) => {
-                    const checked = ((selectedNode.data as any)?.humanPersonsPersonal ?? []).includes(opt.value)
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                          checked
-                            ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                            : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                        }`}
-                        onClick={() => toggleHumanPersonPersonal(opt.value)}
-                      >
-                        {opt.label}
-                      </button>
-                    )
-                  })}
-                  {filteredHumanPeople.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">Không có kết quả</div>
-                  ) : null}
-                </div>
-              </div>
+              <ToggleButtonsPanel
+                title="Người"
+                options={filteredHumanPeople.map(opt => ({ value: opt.value, label: opt.label }))}
+                selectedValues={(selectedNode.data as any)?.humanPersonsPersonal ?? []}
+                onToggle={toggleHumanPersonPersonal}
+                onSelectAll={selectAllPersonalPeople}
+                onClearAll={clearAllPersonalPeople}
+                className="max-h-28"
+                searchBox={
+                  <Input 
+                    value={humanPersonQuery} 
+                    placeholder="Tìm kiếm người..." 
+                    onChange={(e) => setHumanPersonQuery(e.target.value)} 
+                    className="mb-2 mt-1"
+                  />
+                }
+              />
+              {filteredHumanPeople.length === 0 ? (
+                <div className="text-xs text-muted-foreground">Không có kết quả</div>
+              ) : null}
             </div>
           ) : null}
 
@@ -798,73 +847,49 @@ export function DetailBar() {
           {(((selectedNode.data as any)?.humanType ?? 'personal') === 'role') ? (
             <>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-medium">Chức danh</div>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAllHumanRoles}>Chọn tất cả</Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={clearAllHumanRoles}>Bỏ chọn tất cả</Button>
-                  </div>
-                </div>
-                <Input value={humanRoleQuery} placeholder="Tìm kiếm chức danh..." onChange={(e) => setHumanRoleQuery(e.target.value)} />
-                <div className="border rounded-lg p-2 max-h-60 overflow-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {filteredHumanRoles.map((opt) => {
-                      const checked = ((selectedNode.data as any)?.humanRoles ?? []).includes(opt.value)
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                            checked
-                              ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                              : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                          }`}
-                          onClick={() => toggleHumanRole(opt.value)}
-                        >
-                          {opt.label}
-                        </button>
-                      )
-                    })}
-                    {filteredHumanRoles.length === 0 ? (
-                      <div className="text-xs text-muted-foreground">Không có kết quả</div>
-                    ) : null}
-                  </div>
-                </div>
+                <ToggleButtonsPanel
+                  title="Chức danh"
+                  options={filteredHumanRoles.map(opt => ({ value: opt.value, label: opt.label }))}
+                  selectedValues={(selectedNode.data as any)?.humanRoles ?? []}
+                  onToggle={toggleHumanRole}
+                  onSelectAll={selectAllHumanRoles}
+                  onClearAll={clearAllHumanRoles}
+                  className="max-h-28"
+                  searchBox={
+                    <Input 
+                      value={humanRoleQuery} 
+                      placeholder="Tìm kiếm chức danh..." 
+                      onChange={(e) => setHumanRoleQuery(e.target.value)} 
+                      className="mb-2 mt-1"
+                    />
+                  }
+                />
+                {filteredHumanRoles.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">Không có kết quả</div>
+                ) : null}
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-medium">Phòng ban</div>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAllHumanDepts}>Chọn tất cả</Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={clearAllHumanDepts}>Bỏ chọn tất cả</Button>
-                  </div>
-                </div>
-                <Input value={humanDeptQuery} placeholder="Tìm kiếm phòng ban..." onChange={(e) => setHumanDeptQuery(e.target.value)} />
-                <div className="border rounded-lg p-2 max-h-60 overflow-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {filteredHumanDepts.map((opt) => {
-                      const checked = ((selectedNode.data as any)?.humanDepartments ?? []).includes(opt.value)
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                            checked
-                              ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                              : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                          }`}
-                          onClick={() => toggleHumanDept(opt.value)}
-                        >
-                          {opt.label}
-                        </button>
-                      )
-                    })}
-                    {filteredHumanDepts.length === 0 ? (
-                      <div className="text-xs text-muted-foreground">Không có kết quả</div>
-                    ) : null}
-                  </div>
-                </div>
+                <ToggleButtonsPanel
+                  title="Phòng ban"
+                  options={filteredHumanDepts.map(opt => ({ value: opt.value, label: opt.label }))}
+                  selectedValues={(selectedNode.data as any)?.humanDepartments ?? []}
+                  onToggle={toggleHumanDept}
+                  onSelectAll={selectAllHumanDepts}
+                  onClearAll={clearAllHumanDepts}
+                  className="max-h-28"
+                  searchBox={
+                    <Input 
+                      value={humanDeptQuery} 
+                      placeholder="Tìm kiếm phòng ban..." 
+                      onChange={(e) => setHumanDeptQuery(e.target.value)} 
+                      className="mb-2 mt-1"
+                    />
+                  }
+                />
+                {filteredHumanDepts.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">Không có kết quả</div>
+                ) : null}
               </div>
 
               {/* Show Người only when both Chức danh and Phòng ban have selections */}
@@ -875,38 +900,26 @@ export function DetailBar() {
                 if (!(hasRoles && hasDepts)) return null
                 return (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-medium">Người</div>
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAllRolePeople}>Chọn tất cả</Button>
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={clearAllRolePeople}>Bỏ chọn tất cả</Button>
-                      </div>
-                    </div>
-                    <Input value={humanPersonQuery} placeholder="Tìm kiếm người..." onChange={(e) => setHumanPersonQuery(e.target.value)} />
-                    <div className="border rounded-lg p-2 max-h-60 overflow-auto">
-                      <div className="flex flex-wrap gap-2">
-                        {filteredHumanPeople.map((opt) => {
-                          const checked = ((selectedNode.data as any)?.humanPersonsByRole ?? []).includes(opt.value)
-                          return (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                                checked
-                                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                                  : 'bg-transparent hover:bg-muted border-input text-foreground/80'
-                              }`}
-                              onClick={() => toggleHumanPersonRole(opt.value)}
-                            >
-                              {opt.label}
-                            </button>
-                          )
-                        })}
-                        {filteredHumanPeople.length === 0 ? (
-                          <div className="text-xs text-muted-foreground">Không có kết quả</div>
-                        ) : null}
-                      </div>
-                    </div>
+                    <ToggleButtonsPanel
+                      title="Người"
+                      options={filteredHumanPeople.map(opt => ({ value: opt.value, label: opt.label }))}
+                      selectedValues={(selectedNode.data as any)?.humanPersonsByRole ?? []}
+                      onToggle={toggleHumanPersonRole}
+                      onSelectAll={selectAllRolePeople}
+                      onClearAll={clearAllRolePeople}
+                      className="max-h-28"
+                      searchBox={
+                        <Input 
+                          value={humanPersonQuery} 
+                          placeholder="Tìm kiếm người..." 
+                          onChange={(e) => setHumanPersonQuery(e.target.value)} 
+                          className="mb-2 mt-1"
+                        />
+                      }
+                    />
+                    {filteredHumanPeople.length === 0 ? (
+                      <div className="text-xs text-muted-foreground">Không có kết quả</div>
+                    ) : null}
                   </div>
                 )
               })()}
