@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
   Background,
   Controls,
   MiniMap,
   ReactFlow,
   useReactFlow,
+  type Node,
+  type Edge,
   type NodeTypes,
   type EdgeTypes,
   Panel,
@@ -71,6 +74,48 @@ export default function App() {
   const addNode = useFlowStore((s) => s.addNodeFromType)
   const setSelection = useFlowStore((s) => s.setSelection)
   const autosave = useFlowStore((s) => s.autosave)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    targetType: 'node' | 'edge'
+    targetId: string
+  } | null>(null)
+  const hideContextMenu = useCallback(() => setContextMenu(null), [])
+  const openContextMenu = useCallback(
+    (event: ReactMouseEvent, target: { type: 'node' | 'edge'; id: string }) => {
+      event.preventDefault()
+      const menuWidth = 200
+      const menuHeight = 80
+      let x = event.clientX
+      let y = event.clientY
+      if (typeof window !== 'undefined') {
+        const { innerWidth, innerHeight } = window
+        if (x + menuWidth > innerWidth) x = Math.max(innerWidth - menuWidth - 8, 8)
+        if (y + menuHeight > innerHeight) y = Math.max(innerHeight - menuHeight - 8, 8)
+      }
+      setContextMenu({ x, y, targetType: target.type, targetId: target.id })
+    },
+    []
+  )
+  const handleShowDetails = useCallback(() => {
+    if (!contextMenu) return
+    toggleDetailBar(true)
+    hideContextMenu()
+  }, [contextMenu, toggleDetailBar, hideContextMenu])
+  const handleNodeContextMenu = useCallback(
+    (event: ReactMouseEvent, node: Node) => {
+      setSelection({ nodeIds: [node.id], edgeIds: [] })
+      openContextMenu(event, { type: 'node', id: node.id })
+    },
+    [openContextMenu, setSelection]
+  )
+  const handleEdgeContextMenu = useCallback(
+    (event: ReactMouseEvent, edge: Edge) => {
+      setSelection({ nodeIds: [], edgeIds: [edge.id] })
+      openContextMenu(event, { type: 'edge', id: edge.id })
+    },
+    [openContextMenu, setSelection]
+  )
 
   const { screenToFlowPosition } = useReactFlow()
   const dropRef = useRef<HTMLDivElement>(null)
@@ -129,7 +174,7 @@ export default function App() {
         <Topbar />
         <div className="flex-1 flex">
           <div ref={dropRef} className="flex-1">
-          <ReactFlow
+            <ReactFlow
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
@@ -137,13 +182,18 @@ export default function App() {
             onConnect={onConnect}
             onNodeDoubleClick={(_, node) => {
               setSelection({ nodeIds: [node.id], edgeIds: [] })
-              toggleDetailBar(true)
+              hideContextMenu()
             }}
             onEdgeDoubleClick={(_, edge) => {
               setSelection({ nodeIds: [], edgeIds: [edge.id] })
-              toggleDetailBar(true)
+              hideContextMenu()
             }}
-            onPaneClick={() => toggleDetailBar(false)}
+            onNodeContextMenu={handleNodeContextMenu}
+            onEdgeContextMenu={handleEdgeContextMenu}
+            onPaneClick={() => {
+              toggleDetailBar(false)
+              hideContextMenu()
+            }}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onDragOver={onDragOver}
@@ -155,6 +205,7 @@ export default function App() {
             fitView
             proOptions={{ hideAttribution: true }}
             onSelectionChange={(params) => {
+              hideContextMenu()
               setSelection({ nodeIds: params.nodes?.map((n) => n.id) ?? [], edgeIds: params.edges?.map((e) => e.id) ?? [] })
             }}
           >
@@ -169,6 +220,30 @@ export default function App() {
           {showDetailBar ? <DetailBar /> : null}
         </div>
       </div>
+      {contextMenu ? (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={hideContextMenu}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <div
+            className="absolute z-50 w-56 rounded-md border border-border bg-background text-sm shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center px-3 py-2 text-left hover:bg-muted"
+              onClick={(event) => {
+                event.stopPropagation()
+                handleShowDetails()
+              }}
+            >
+              Chỉnh sửa chi tiết
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
