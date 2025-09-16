@@ -15,6 +15,22 @@ export type AlgoNodeType =
   | 'or'
   | 'comment'
 
+// Node state within a workflow execution
+export type NodeStatus = 
+  | 'pending'    // Not yet started
+  | 'active'     // Currently executing
+  | 'waiting'    // Waiting for input (e.g., human approval)
+  | 'completed'  // Finished execution
+  | 'error'      // Failed execution
+  | 'cancelled'  // Execution cancelled
+
+// Workflow instance state
+export type WorkflowStatus =
+  | 'active'     // Currently executing
+  | 'completed'  // Successfully completed
+  | 'error'      // Failed with error
+  | 'cancelled'  // Cancelled by user
+
 export type AlgoNodeData = {
   label: string
   color?: string
@@ -41,6 +57,9 @@ export type AlgoNodeData = {
   // Flags to indicate if options have been initialized
   humanPersonalPeopleInitialized?: boolean
   humanRolePeopleInitialized?: boolean
+  // New fields for stateful nodes
+  requiredInputs?: number  // Number of inputs required for AND/OR nodes
+  approvalMode?: 'any' | 'all'  // For human nodes: any = any user can approve, all = all users must approve
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>
@@ -86,6 +105,50 @@ export type DiagramWithRelations = {
   ownerId: string
   objects: DiagramObject[]
   connections: DiagramConnection[]
+}
+
+// Types for stateful workflow instances
+export type WorkflowInstance = {
+  id: string
+  diagramId: string
+  status: WorkflowStatus
+  context: Record<string, unknown>
+  startedBy: string
+  startedAt: string
+  completedAt?: string
+  error?: string
+}
+
+export type NodeState = {
+  id: string
+  workflowInstanceId: string
+  nodeId: string
+  status: NodeStatus
+  data: Record<string, unknown>
+  inputsRequired: number
+  inputsReceived: number
+  inputsPassed: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type NodeInput = {
+  id: string
+  nodeStateId: string
+  sourceNodeId: string
+  inputData: Record<string, unknown>
+  evaluationResult?: boolean
+  receivedAt: string
+}
+
+export type NodeApproval = {
+  id: string
+  nodeStateId: string
+  userId: string
+  status: 'pending' | 'approved' | 'rejected'
+  comment?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export function autoPositions(a: { x: number; y: number; width?: number; height?: number }, b: { x: number; y: number; width?: number; height?: number }) {
