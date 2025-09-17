@@ -134,6 +134,72 @@ async function ensureSchema() {
   await db.query('CREATE INDEX IF NOT EXISTS cr01notification_sender_idx ON section0.cr01notification(sender)')
   await db.query('CREATE INDEX IF NOT EXISTS cr01notification_isread_idx ON section0.cr01notification(isread)')
   
+  // Create tables for stateful workflow execution
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS section0.cr08workflow_instances (
+      id TEXT PRIMARY KEY,
+      diagram_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      context JSONB DEFAULT '{}',
+      started_by INTEGER,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ,
+      error TEXT,
+      FOREIGN KEY (diagram_id) REFERENCES section0.cr07Bdiagrams(id) ON DELETE CASCADE
+    );
+  `)
+  
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS section0.cr08anode_states (
+      id TEXT PRIMARY KEY,
+      workflow_instance_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      data JSONB DEFAULT '{}',
+      inputs_required INTEGER DEFAULT 0,
+      inputs_received INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (workflow_instance_id) REFERENCES section0.cr08workflow_instances(id) ON DELETE CASCADE,
+      CONSTRAINT node_instance_unique UNIQUE (workflow_instance_id, node_id)
+    );
+  `)
+  
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS section0.cr08bnode_inputs (
+      id TEXT PRIMARY KEY,
+      node_state_id TEXT NOT NULL,
+      source_node_id TEXT NOT NULL,
+      input_data JSONB DEFAULT '{}',
+      evaluation_result BOOLEAN,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (node_state_id) REFERENCES section0.cr08anode_states(id) ON DELETE CASCADE
+    );
+  `)
+  
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS section0.cr08cnode_approvals (
+      id TEXT PRIMARY KEY,
+      node_state_id TEXT NOT NULL,
+      user_id INT4 NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      comment TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (node_state_id) REFERENCES section0.cr08anode_states(id) ON DELETE CASCADE,
+      CONSTRAINT user_approval_unique UNIQUE (node_state_id, user_id)
+    );
+  `)
+  
+  // Create indexes for workflow tables
+  await db.query('CREATE INDEX IF NOT EXISTS workflow_instances_diagram_id_idx ON section0.cr08workflow_instances(diagram_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS workflow_instances_status_idx ON section0.cr08workflow_instances(status)')
+  await db.query('CREATE INDEX IF NOT EXISTS node_states_workflow_instance_id_idx ON section0.cr08anode_states(workflow_instance_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS node_states_status_idx ON section0.cr08anode_states(status)')
+  await db.query('CREATE INDEX IF NOT EXISTS node_inputs_node_state_id_idx ON section0.cr08bnode_inputs(node_state_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS node_approvals_node_state_id_idx ON section0.cr08cnode_approvals(node_state_id)')
+  await db.query('CREATE INDEX IF NOT EXISTS node_approvals_user_id_idx ON section0.cr08cnode_approvals(user_id)')
+  
   // Auto-migrate existing data from JSON format to separate tables
   await migrateLegacyData()
 }

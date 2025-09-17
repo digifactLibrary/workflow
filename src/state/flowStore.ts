@@ -246,16 +246,16 @@ export const useFlowStore = create<FlowState>()(
             return {}
           }
           if (outgoing.length === 0) {
-            edgeData = { label: 'Có', kind: 'yes' }
+            edgeData = { label: 'Đúng', kind: 'true' }
             style = { stroke: '#10b981' }
           } else {
-            const firstKind = (outgoing[0].data as any)?.kind === 'no' ? 'no' : 'yes'
-            const nextKind = firstKind === 'yes' ? 'no' : 'yes'
-            if (nextKind === 'yes') {
-              edgeData = { label: 'Có', kind: 'yes' }
+            const firstKind = (outgoing[0].data as any)?.kind === 'false' ? 'false' : 'true'
+            const nextKind = firstKind === 'true' ? 'false' : 'true'
+            if (nextKind === 'true') {
+              edgeData = { label: 'Đúng', kind: 'true' }
               style = { stroke: '#10b981' }
             } else {
-              edgeData = { label: 'Không', kind: 'no' }
+              edgeData = { label: 'Sai', kind: 'false' }
               style = { stroke: '#ef4444' }
             }
           }
@@ -270,7 +270,7 @@ export const useFlowStore = create<FlowState>()(
           style,
         } as Edge
         
-        // Chỉ thêm markerEnd nếu không phải là undefined
+        // Chỉ thêm markerEnd nếu Sai phải là undefined
         // Điều này đảm bảo undefined được bảo tồn trong cấu trúc dữ liệu
         if (markerEnd !== undefined) {
           (edge as any).markerEnd = markerEnd;
@@ -366,13 +366,13 @@ export const useFlowStore = create<FlowState>()(
           const s0 = add('start', 0, 0, { label: 'Bắt đầu' })
           const p1 = add('trigger', 200, 0, { label: 'Nhập dữ liệu' })
           const d2 = add('decision', 420, -40, { label: 'Điều kiện?' }, { h: 100 })
-          const pY = add('send', 640, -120, { label: 'Nhánh Có' })
-          const pN = add('send', 640, 40, { label: 'Nhánh Không' })
+          const pY = add('send', 640, -120, { label: 'Nhánh Đúng' })
+          const pN = add('send', 640, 40, { label: 'Nhánh Sai' })
           const e3 = add('end', 860, -40, { label: 'Kết thúc' })
           link(s0, p1)
           link(p1, d2)
-          link(d2, pY, { data: { label: 'Có', kind: 'yes' }, style: { stroke: '#10b981' } })
-          link(d2, pN, { data: { label: 'Không', kind: 'no' }, style: { stroke: '#ef4444' } })
+          link(d2, pY, { data: { label: 'Đúng', kind: 'true' }, style: { stroke: '#10b981' } })
+          link(d2, pN, { data: { label: 'Sai', kind: 'false' }, style: { stroke: '#ef4444' } })
           link(pY, e3)
           link(pN, e3)
         }

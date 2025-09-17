@@ -1,7 +1,3 @@
-/**
- * Workflow Engine for stateful workflow execution
- */
-
 const { Pool } = require('pg')
 const { v4: uuidv4 } = require('uuid')
 
@@ -30,7 +26,7 @@ class WorkflowEngine {
         `INSERT INTO section0.cr08workflow_instances
         (id, diagram_id, status, context, started_by)
         VALUES ($1, $2, 'active', $3, $4)`,
-        [workflowInstanceId, diagramId, JSON.stringify({ triggerEvent, ...triggerData }), userId]
+        [workflowInstanceId, diagramId, JSON.stringify({ triggerEvent, ...triggerData }), parseInt(userId, 10)]
       )
 
       // Find trigger nodes that match this event
@@ -47,9 +43,6 @@ class WorkflowEngine {
 
       // Process each matching trigger node
       for (const triggerNode of triggerNodesResult.rows) {
-        // // Check permissions via connected human nodes
-        // const hasPermission = await this.checkHumanPermissions(client, diagramId, triggerNode.node_id, userId)
-        // if (!hasPermission) continue
 
         // Initialize the trigger node state
         const nodeStateId = `ns_${uuidv4()}`
@@ -180,32 +173,36 @@ class WorkflowEngine {
             [targetNodeId]
           )
           inputsRequired = parseInt(andInputsResult.rows[0].count)
+          // Set AND nodes to active so they execute immediately
+          status = 'active'
           break
           
         case 'or':
           // For OR nodes, we'll set required inputs to 1
           inputsRequired = 1
+          // Set OR nodes to active so they execute immediately
+          status = 'active'
           break
           
-        case 'human':
-          // Human nodes are waiting for user interaction
+        case 'trigger':
+          // Trigger nodes are waiting for user interaction
           status = 'waiting'
           
-          // Check if we need approvals from all users or just one
-          const approvalMode = targetNode.data.approvalMode || 'any' // Default to any
-          
-          // If all approvals required, count how many
-          if (approvalMode === 'all') {
-            if (targetNode.data.humanType === 'personal') {
-              inputsRequired = (targetNode.data.humanIds || []).length
-            } else if (targetNode.data.humanType === 'role') {
-              // For role-based, we'd need to count actual users in these roles
-              // This is simplified here
-              inputsRequired = 1 // Placeholder
+          if (targetNode.data.triggerEvents.includes('approve')) {
+            // Check if we need approvals from all users or just one
+            const approvalMode = targetNode.data.approvalMode || 'any' // Default to any
+            
+            // If all approvals required, count how many
+            if (approvalMode === 'all') {
+              if (targetNode.data.humanType === 'personal') {
+                inputsRequired = (targetNode.data.humanIds || []).length
+              } else if (targetNode.data.humanType === 'role') {
+                inputsRequired = await this.getNumberOfUsersInRoles(client, targetNode.data.humanRoleIds || [])
+              }
+            } else {
+              // Any approval is enough
+              inputsRequired = 1
             }
-          } else {
-            // Any approval is enough
-            inputsRequired = 1
           }
           break
           
@@ -226,14 +223,14 @@ class WorkflowEngine {
       
       // Create the node state
       await client.query(
-        `INSERT INTO section0.cr09node_states
+        `INSERT INTO section0.cr08anode_states
         (id, workflow_instance_id, node_id, status, inputs_required, data)
         VALUES ($1, $2, $3, $4, $5, $6)`,
         [nodeStateId, workflowInstanceId, targetNodeId, status, inputsRequired, JSON.stringify(nodeData)]
       )
       
-      // For human nodes, create approval records for each required user
-      if (targetNode.node_type === 'human') {
+      // For trigger nodes with approve event, create approval records for connected human nodes
+      if (targetNode.node_type === 'trigger' && targetNode.data.triggerEvents.includes('approve')) {
         await this.createHumanApprovals(client, nodeStateId, targetNode.data)
       }
       
@@ -249,35 +246,78 @@ class WorkflowEngine {
    * Create approval records for human nodes
    * @param {object} client - Database client
    * @param {string} nodeStateId - Node state ID
-   * @param {object} nodeData - Human node data
+   * @param {object} triggerNodeData - Trigger node data
    * @returns {Promise<void>}
    */
-  async createHumanApprovals(client, nodeStateId, nodeData) {
-    const userIds = []
+  async createHumanApprovals(client, nodeStateId, triggerNodeData) {
+    // First, get the trigger node's ID to find connected human nodes
+    const nodeStateResult = await client.query(
+      `SELECT ns.node_id, wi.diagram_id 
+       FROM section0.cr08anode_states ns
+       JOIN section0.cr08workflow_instances wi ON ns.workflow_instance_id = wi.id
+       WHERE ns.id = $1`,
+      [nodeStateId]
+    )
     
-    if (nodeData.humanType === 'personal') {
-      // Personal selection - directly use humanIds
-      userIds.push(...(nodeData.humanIds || []))
-    } else if (nodeData.humanType === 'role') {
-      // Role-based selection - need to find users with these roles
-      // This would depend on your user-role relationship structure
-      // Simplified example:
-      for (const roleId of (nodeData.humanRoleIds || [])) {
-        const usersResult = await client.query(
-          `SELECT user_id FROM section0.user_roles WHERE role_id = $1`,
-          [roleId]
-        )
-        usersResult.rows.forEach(row => userIds.push(row.user_id))
+    if (nodeStateResult.rows.length === 0) return
+    
+    const triggerNodeId = nodeStateResult.rows[0].node_id
+    const diagramId = nodeStateResult.rows[0].diagram_id
+    
+    // Find connected human nodes that are source nodes to this trigger node
+    const humanNodesResult = await client.query(
+      `SELECT o.node_id, o.data
+       FROM section0.cr07Cdiagram_objects o
+       JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
+       WHERE o.diagram_id = $1 AND o.node_type = 'human' AND c.target_node_id = $2`,
+      [diagramId, triggerNodeId]
+    )
+    
+    // Process each human node and collect user IDs
+    const allUserIds = []
+    
+    for (const humanNode of humanNodesResult.rows) {
+      const nodeData = humanNode.data
+      
+      if (nodeData.humanType === 'personal') {
+        // Personal selection - directly use humanIds
+        allUserIds.push(...(nodeData.humanIds || []))
+      } else if (nodeData.humanType === 'role') {
+        // Role-based selection - need to find users with these roles
+        // This would depend on your user-role relationship structure
+        for (const roleId of (nodeData.humanRoleIds || [])) {
+          const usersResult = await client.query(
+            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
+            [roleId]
+          )
+          usersResult.rows.forEach(row => allUserIds.push(row.id))
+        }
       }
     }
     
-    // Create approval records for each user
-    for (const userId of userIds) {
+    // If no users found from connected human nodes, check if the trigger node itself has human data
+    if (allUserIds.length === 0 && triggerNodeData.humanType) {
+      if (triggerNodeData.humanType === 'personal') {
+        allUserIds.push(...(triggerNodeData.humanIds || []))
+      } else if (triggerNodeData.humanType === 'role') {
+        for (const roleId of (triggerNodeData.humanRoleIds || [])) {
+          const usersResult = await client.query(
+            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
+            [roleId]
+          )
+          usersResult.rows.forEach(row => allUserIds.push(row.id))
+        }
+      }
+    }
+    
+    // Create approval records for each unique user
+    const uniqueUserIds = [...new Set(allUserIds)]
+    for (const userId of uniqueUserIds) {
       await client.query(
-        `INSERT INTO section0.cr11node_approvals
+        `INSERT INTO section0.cr08cnode_approvals
         (id, node_state_id, user_id, status)
         VALUES ($1, $2, $3, 'pending')`,
-        [`na_${uuidv4()}`, nodeStateId, userId]
+        [`na_${uuidv4()}`, nodeStateId, parseInt(userId, 10)]
       )
     }
   }
@@ -292,7 +332,7 @@ class WorkflowEngine {
     // Get all active nodes that should be processed
     const activeNodesResult = await client.query(
       `SELECT ns.id as state_id, ns.node_id, o.node_type, ns.data
-       FROM section0.cr09node_states ns
+       FROM section0.cr08anode_states ns
        JOIN section0.cr07Cdiagram_objects o ON ns.node_id = o.node_id
        WHERE ns.workflow_instance_id = $1 AND ns.status = 'active'`,
       [workflowInstanceId]
@@ -353,7 +393,7 @@ class WorkflowEngine {
       case 'end':
         // Mark the node as completed
         await client.query(
-          `UPDATE section0.cr09node_states SET status = 'completed' WHERE id = $1`,
+          `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
           [nodeStateId]
         )
         // End node doesn't have outgoing connections
@@ -383,17 +423,62 @@ class WorkflowEngine {
     if (nodeResult.rows.length === 0) return { continue: false }
     
     const nodeData = nodeResult.rows[0].data
-    // The decision logic would be based on comparing values in the node data
-    // This is a simplified example - adjust based on your actual condition structure
-    const conditionValue = nodeData.conditionValue || ''
-    const inputValue = inputData.value || ''
+    // Evaluate the condition
+    let conditionValue = nodeData.conditionValue || '';
     
-    const conditionMet = inputValue === conditionValue
+    const inputValue = inputData.result !== undefined ? inputData.result : (inputData.value || '') 
+    const conditionMet = inputValue == conditionValue; // Simple equality check, can be extended
     
+    // Check if we should process this input based on AND/OR logic from previous nodes
+    let shouldProcess = true;
+    
+    if (inputData.checkType) {
+      if (conditionMet) {
+        // For true condition:
+        // - If from an AND node, only process if it's the last input (all inputs satisfied)
+        // - If from an OR node, always process (any input satisfies)
+        if (inputData.checkType === 'and' && !inputData.lastInput) {
+          shouldProcess = false;
+        }
+      } else {
+        // For false condition:
+        // - If from an OR node, only process if it's the last input (all inputs failed)
+        // - If from an AND node, always process (any input failing means condition fails)
+        if (inputData.checkType === 'or' && !inputData.lastInput) {
+          shouldProcess = false;
+        }
+      }
+    }
+    
+    // If we should not process yet, just save the state and return
+    if (!shouldProcess) {
+      return { continue: false }
+    }
+
+    // Find all active source nodes that connect to this decision node and mark them as completed
+    // This ensures we don't re-process inputs once a decision has been made
+    const sourceNodesResult = await client.query(
+      `SELECT ns.id
+       FROM section0.cr08anode_states ns
+       JOIN section0.cr07Ddiagram_connections c ON ns.node_id = c.source_node_id
+       WHERE c.target_node_id = $1
+       AND ns.workflow_instance_id = $2
+       AND ns.status = 'active'`,
+      [nodeId, workflowInstanceId]
+    );
+    
+    // Mark all active source nodes as completed
+    for (const sourceNode of sourceNodesResult.rows) {
+      await client.query(
+        `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
+        [sourceNode.id]
+      );
+    }
+
     // Update the node state with the result
     await client.query(
-      `UPDATE section0.cr09node_states 
-       SET status = 'completed', data = jsonb_set(data, '{conditionResult}', $1)
+      `UPDATE section0.cr08anode_states 
+       SET status = 'completed', data = jsonb_set(data, '{result}', $1)
        WHERE id = $2`,
       [JSON.stringify(conditionMet), nodeStateId]
     )
@@ -402,16 +487,29 @@ class WorkflowEngine {
     const connectionsResult = await client.query(
       `SELECT c.id, c.target_node_id, c.data
        FROM section0.cr07Ddiagram_connections c
-       WHERE c.source_node_id = $1 AND c.data->>'condition' = $2`,
+       WHERE c.source_node_id = $1 AND c.data->>'kind' = $2`,
       [nodeId, conditionMet ? 'true' : 'false']
     )
     
     // Process outgoing connections
     let moreNodesToProcess = false
+    
+    // Create decision metadata to pass along with the result
+    const decisionMetadata = {
+      source: 'decision',
+      conditionValue,
+      inputValue,
+      conditionMet,
+      conditionType: nodeData.conditionType || 'equals',
+      processedAt: new Date().toISOString(),
+      sourceNodeIds: sourceNodesResult.rows.map(node => node.id)
+    };
+    
     for (const conn of connectionsResult.rows) {
       await this.processOutgoingConnections(client, workflowInstanceId, nodeId, { 
         ...inputData, 
-        conditionResult: conditionMet 
+        result: conditionMet,
+        decisionMetadata
       })
       moreNodesToProcess = true
     }
@@ -429,66 +527,46 @@ class WorkflowEngine {
    * @returns {Promise<object>} - Result of the execution
    */
   async executeAndNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    // Get current node state
-    const nodeStateResult = await client.query(
-      `SELECT inputs_required, inputs_received, inputs_passed
-       FROM section0.cr09node_states
-       WHERE id = $1`,
-      [nodeStateId]
-    )
-    
-    if (nodeStateResult.rows.length === 0) return { continue: false }
-    
-    const nodeState = nodeStateResult.rows[0]
-    
-    // Store this input with the source node information
-    const inputId = `ni_${uuidv4()}`
-    await client.query(
-      `INSERT INTO section0.cr10node_inputs
-       (id, node_state_id, source_node_id, input_data, evaluation_result)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [inputId, nodeStateId, inputData.sourceNodeId || 'unknown', JSON.stringify(inputData), true]
-    )
-    
     // Update received inputs count
     await client.query(
-      `UPDATE section0.cr09node_states
-       SET inputs_received = inputs_received + 1,
-           inputs_passed = inputs_passed + 1
+      `UPDATE section0.cr08anode_states
+       SET inputs_received = inputs_received + 1
        WHERE id = $1`,
       [nodeStateId]
     )
     
     // Re-fetch the updated state
     const updatedStateResult = await client.query(
-      `SELECT inputs_required, inputs_received, inputs_passed
-       FROM section0.cr09node_states
+      `SELECT inputs_required, inputs_received
+       FROM section0.cr08anode_states
        WHERE id = $1`,
       [nodeStateId]
     )
     
     const updatedState = updatedStateResult.rows[0]
     
-    // Check if we've received all required inputs
-    if (updatedState.inputs_passed >= updatedState.inputs_required) {
-      // All inputs received and passed, complete the node
+    // Always forward the input to the next nodes
+    // Check if this is the last input
+    const isLastInput = updatedState.inputs_received >= updatedState.inputs_required
+    
+    // Process outgoing connections
+    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
+      ...inputData,
+      checkType: 'and',
+      lastInput: isLastInput
+    })
+    
+    // If this was the last input, mark the node as completed
+    if (isLastInput) {
       await client.query(
-        `UPDATE section0.cr09node_states
-         SET status = 'completed', data = jsonb_set(data, '{result}', 'true')
+        `UPDATE section0.cr08anode_states
+         SET status = 'completed'
          WHERE id = $1`,
         [nodeStateId]
       )
-      
-      // Process outgoing connections
-      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
-        ...inputData,
-        result: true
-      })
-      
-      return { continue: true }
     }
     
-    return { continue: false }
+    return { continue: true }
   }
 
   /**
@@ -501,39 +579,43 @@ class WorkflowEngine {
    * @returns {Promise<object>} - Result of the execution
    */
   async executeOrNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    // Similar to AND node but with OR logic
-    // Store this input with the source node information
-    const inputId = `ni_${uuidv4()}`
-    await client.query(
-      `INSERT INTO section0.cr10node_inputs
-       (id, node_state_id, source_node_id, input_data, evaluation_result)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [inputId, nodeStateId, inputData.sourceNodeId || 'unknown', JSON.stringify(inputData), true]
-    )
-    
     // Update received inputs count
     await client.query(
-      `UPDATE section0.cr09node_states
-       SET inputs_received = inputs_received + 1,
-           inputs_passed = inputs_passed + 1
+      `UPDATE section0.cr08anode_states
+       SET inputs_received = inputs_received + 1
        WHERE id = $1`,
       [nodeStateId]
     )
     
-    // For OR node, any passed input is sufficient
-    // Complete the node and continue
-    await client.query(
-      `UPDATE section0.cr09node_states
-       SET status = 'completed', data = jsonb_set(data, '{result}', 'true')
+    // Re-fetch the updated state
+    const updatedStateResult = await client.query(
+      `SELECT inputs_required, inputs_received
+       FROM section0.cr08anode_states
        WHERE id = $1`,
       [nodeStateId]
     )
+    
+    const updatedState = updatedStateResult.rows[0]
+    // Always forward the input to the next nodes
+    // For OR node, check if it's the last possible input
+    const isLastInput = updatedState.inputs_received >= updatedState.inputs_required
     
     // Process outgoing connections
     await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
       ...inputData,
-      result: true
+      checkType: 'or',
+      lastInput: isLastInput
     })
+
+    // If this was the last possible input, mark the node as completed
+    if (isLastInput) {
+      await client.query(
+        `UPDATE section0.cr08anode_states
+         SET status = 'completed'
+         WHERE id = $1`,
+        [nodeStateId]
+      )
+    }
     
     return { continue: true }
   }
@@ -580,15 +662,14 @@ class WorkflowEngine {
         recipients.push(...data.humanIds)
       }
       
-      // Add users from roles (this would need to query your role system)
+      // Add users from roles
       if (data.humanRoleIds) {
-        // Simplified - in real implementation, query users with these roles
         for (const roleId of data.humanRoleIds) {
           const usersResult = await client.query(
-            `SELECT user_id FROM section0.user_roles WHERE role_id = $1`,
+            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
             [roleId]
           )
-          usersResult.rows.forEach(row => recipients.push(row.user_id))
+          usersResult.rows.forEach(row => recipients.push(row.id))
         }
       }
     }
@@ -598,10 +679,10 @@ class WorkflowEngine {
     for (const sendKind of sendKinds) {
       switch (sendKind) {
         case 'inapp':
-          await this.sendInAppNotifications(client, recipients, nodeData.label || 'Notification', inputData)
+          this.sendInAppNotifications(client, recipients, nodeData.label || 'Notification', inputData)
           break
         case 'email':
-          await this.sendEmailNotifications(client, recipients, nodeData.label || 'Notification', inputData)
+          this.sendEmailNotifications(client, recipients, nodeData.label || 'Notification', inputData)
           break
         // Add other notification methods as needed
       }
@@ -609,7 +690,7 @@ class WorkflowEngine {
     
     // Mark the node as completed
     await client.query(
-      `UPDATE section0.cr09node_states SET status = 'completed' WHERE id = $1`,
+      `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
       [nodeStateId]
     )
     
@@ -629,7 +710,7 @@ class WorkflowEngine {
     // Check if there are any non-completed node states
     const pendingNodesResult = await client.query(
       `SELECT COUNT(*) as count
-       FROM section0.cr09node_states
+       FROM section0.cr08anode_states
        WHERE workflow_instance_id = $1
        AND status NOT IN ('completed', 'error')`,
       [workflowInstanceId]
@@ -651,7 +732,7 @@ class WorkflowEngine {
     // Check if there are any active nodes (excluding waiting nodes)
     const activeNodesResult = await client.query(
       `SELECT COUNT(*) as count
-       FROM section0.cr09node_states
+       FROM section0.cr08anode_states
        WHERE workflow_instance_id = $1 AND status = 'active'`,
       [workflowInstanceId]
     )
@@ -694,23 +775,30 @@ class WorkflowEngine {
   // Methods for user role/department management - these would integrate with your system
   
   async getUserRoles(client, userId) {
-    // This would query your user-role relationship table
-    // Simplified example:
     const result = await client.query(
-      `SELECT role_id FROM section0.user_roles WHERE user_id = $1`,
-      [userId]
+      `SELECT recordidchucdanh FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
+      [parseInt(userId, 10)]
     )
-    return result.rows.map(row => row.role_id)
+    return result.rows.map(row => row.recordidchucdanh)
   }
   
   async getUserDepartments(client, userId) {
-    // This would query your user-department relationship table
-    // Simplified example:
     const result = await client.query(
-      `SELECT department_id FROM section0.user_departments WHERE user_id = $1`,
-      [userId]
+      `SELECT recordidphongban FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
+      [parseInt(userId, 10)]
     )
-    return result.rows.map(row => row.department_id)
+    return result.rows.map(row => row.recordidphongban)
+  }
+
+  async getNumberOfUsersInRoles(client, roleIds) {
+    if (!roleIds || roleIds.length === 0) return 0
+    const result = await client.query(
+      `SELECT COUNT(DISTINCT id, manhanvien) as count
+        FROM section9nhansu.ns01taikhoannguoidung
+        WHERE recordidchucdanh = ANY($1)`,
+      [roleIds]
+    )
+    return result.rows.length > 0 ? parseInt(result.rows[0].count, 10) : 0
   }
 
   /**
@@ -728,11 +816,11 @@ class WorkflowEngine {
       
       // Update the approval record
       const updateResult = await client.query(
-        `UPDATE section0.cr11node_approvals
+        `UPDATE section0.cr08cnode_approvals
          SET status = $1, comment = $2, updated_at = now()
          WHERE node_state_id = $3 AND user_id = $4
          RETURNING id`,
-        [approved ? 'approved' : 'rejected', comment || null, nodeStateId, userId]
+        [approved ? 'approved' : 'rejected', comment || null, nodeStateId, parseInt(userId, 10)]
       )
       
       if (updateResult.rows.length === 0) {
@@ -742,7 +830,7 @@ class WorkflowEngine {
       // Get the node state to check approval mode
       const nodeStateResult = await client.query(
         `SELECT ns.id, ns.workflow_instance_id, ns.node_id, ns.inputs_required
-         FROM section0.cr09node_states ns
+         FROM section0.cr08anode_states ns
          WHERE ns.id = $1`,
         [nodeStateId]
       )
@@ -766,7 +854,7 @@ class WorkflowEngine {
       
       // Check current approval status
       const approvalsResult = await client.query(
-        `SELECT status FROM section0.cr11node_approvals
+        `SELECT status FROM section0.cr08cnode_approvals
          WHERE node_state_id = $1`,
         [nodeStateId]
       )
@@ -807,7 +895,7 @@ class WorkflowEngine {
       if (nodeCompleted) {
         // Update node state
         await client.query(
-          `UPDATE section0.cr09node_states
+          `UPDATE section0.cr08anode_states
            SET status = 'completed', data = jsonb_set(data, '{approvalResult}', $1)
            WHERE id = $2`,
           [JSON.stringify(approvalResult), nodeStateId]

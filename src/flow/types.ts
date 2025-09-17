@@ -43,7 +43,7 @@ export type AlgoNodeData = {
   // Send-specific optional fields
   sendKinds?: string[]
   // Decision-specific optional fields
-  checkValue?: string
+  conditionValue?: string
   // Human-specific optional fields
   humanType?: 'personal' | 'role'
   // Effective union of selected people from both blocks

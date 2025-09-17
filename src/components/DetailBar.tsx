@@ -1025,9 +1025,9 @@ export function DetailBar() {
           <div className="space-y-2">
             <div className="text-xs font-medium">Giá trị kiểm tra</div>
             <Input
-              value={(selectedNode.data as any)?.checkValue ?? ''}
+              value={(selectedNode.data as any)?.conditionValue ?? ''}
               placeholder="Nhập giá trị để so sánh..."
-              onChange={(e) => updateNodeData(selectedNode.id, { checkValue: e.target.value })}
+              onChange={(e) => updateNodeData(selectedNode.id, { conditionValue: e.target.value })}
             />
             <div className="text-xs text-muted-foreground">
               Nếu input = giá trị kiểm tra thì đi nhánh "Có", ngược lại đi nhánh "Không"

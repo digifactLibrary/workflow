@@ -13,14 +13,12 @@ module.exports = function(app, db) {
    */
   app.post('/api/workflow/trigger', async (req, res) => {
     try {
-      const { diagramId, triggerEvent, data = {} } = req.body
+      const { diagramId, triggerEvent, userId, data = {} } = req.body
       
       if (!diagramId || !triggerEvent) {
         return res.status(400).json({ error: 'diagramId and triggerEvent are required' })
       }
       
-      // Get user ID from auth middleware
-      const userId = req.userId
       if (!userId) {
         return res.status(401).json({ error: 'Authentication required' })
       }
@@ -92,7 +90,7 @@ module.exports = function(app, db) {
       // Check if user has access to this diagram
       const diagramCheck = await db.query(
         'SELECT id FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
-        [diagramId, userId]
+        [diagramId, parseInt(userId, 10)]
       )
       
       if (diagramCheck.rows.length === 0) {
@@ -142,7 +140,7 @@ module.exports = function(app, db) {
         FROM section0.cr08workflow_instances wi
         JOIN section0.cr07Bdiagrams d ON wi.diagram_id = d.id
         WHERE wi.id = $1 AND d.owner_id = $2
-      `, [instanceId, userId])
+      `, [instanceId, parseInt(userId, 10)])
       
       if (instanceResult.rows.length === 0) {
         return res.status(404).json({ error: 'Workflow instance not found' })
@@ -155,7 +153,7 @@ module.exports = function(app, db) {
         SELECT ns.id, ns.node_id, ns.status, ns.inputs_required, 
                ns.inputs_received, ns.inputs_passed, ns.data,
                ns.created_at, ns.updated_at
-        FROM section0.cr09node_states ns
+        FROM section0.cr08anode_states ns
         WHERE ns.workflow_instance_id = $1
         ORDER BY ns.created_at
       `, [instanceId])
@@ -164,10 +162,10 @@ module.exports = function(app, db) {
       const approvalsResult = await db.query(`
         SELECT na.id, na.node_state_id, na.status, na.comment,
                na.created_at, na.updated_at
-        FROM section0.cr11node_approvals na
-        JOIN section0.cr09node_states ns ON na.node_state_id = ns.id
+        FROM section0.cr08cnode_approvals na
+        JOIN section0.cr08anode_states ns ON na.node_state_id = ns.id
         WHERE ns.workflow_instance_id = $1 AND na.user_id = $2
-      `, [instanceId, userId])
+      `, [instanceId, parseInt(userId, 10)])
       
       res.json({
         ...instance,
@@ -198,8 +196,8 @@ module.exports = function(app, db) {
                wi.diagram_id,
                d.name as diagram_name,
                o.data->>'label' as node_label
-        FROM section0.cr11node_approvals na
-        JOIN section0.cr09node_states ns ON na.node_state_id = ns.id
+        FROM section0.cr08cnode_approvals na
+        JOIN section0.cr08anode_states ns ON na.node_state_id = ns.id
         JOIN section0.cr08workflow_instances wi ON ns.workflow_instance_id = wi.id
         JOIN section0.cr07Bdiagrams d ON wi.diagram_id = d.id
         JOIN section0.cr07Cdiagram_objects o ON ns.node_id = o.node_id
@@ -230,7 +228,7 @@ module.exports = function(app, db) {
       // Check if user has access to this diagram
       const diagramCheck = await db.query(
         'SELECT id FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
-        [diagramId, userId]
+        [diagramId, parseInt(userId, 10)]
       )
       
       if (diagramCheck.rows.length === 0) {
@@ -260,7 +258,7 @@ module.exports = function(app, db) {
           SUM(CASE WHEN ns.status = 'waiting' THEN 1 ELSE 0 END) as waiting,
           SUM(CASE WHEN ns.status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN ns.status = 'error' THEN 1 ELSE 0 END) as error
-        FROM section0.cr09node_states ns
+        FROM section0.cr08anode_states ns
         JOIN section0.cr08workflow_instances wi ON ns.workflow_instance_id = wi.id
         JOIN section0.cr07Cdiagram_objects o ON ns.node_id = o.node_id
         WHERE wi.diagram_id = $1
