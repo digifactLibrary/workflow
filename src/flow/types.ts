@@ -42,6 +42,8 @@ export type AlgoNodeData = {
   webhook?: string
   // Send-specific optional fields
   sendKinds?: string[]
+  // Decision-specific optional fields
+  checkValue?: string
   // Human-specific optional fields
   humanType?: 'personal' | 'role'
   // Effective union of selected people from both blocks
@@ -59,7 +61,7 @@ export type AlgoNodeData = {
   humanRolePeopleInitialized?: boolean
   // New fields for stateful nodes
   requiredInputs?: number  // Number of inputs required for AND/OR nodes
-  approvalMode?: 'any' | 'all'  // For human nodes: any = any user can approve, all = all users must approve
+  approvalMode?: 'any' | 'all'  // For approve trigger nodes: any = any user can approve, all = all users must approve
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>

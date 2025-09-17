@@ -58,9 +58,45 @@ export const useFlowStore = create<FlowState>()(
           }
           return h
         }
+        
+        // Filter edges to enforce human node connection constraints
+        const validConnections = new Map();
+        const filteredEdges = (d.edges || []).filter((edge: any) => {
+          const sourceNode = d.nodes.find(n => n.id === edge.source);
+          const targetNode = d.nodes.find(n => n.id === edge.target);
+          
+          if (!sourceNode || !targetNode) return false;
+          
+          // 1. Remove connections where human is the target
+          if (targetNode.type === 'human') {
+            return false;
+          }
+          
+          // 2. For human source nodes, only allow connections to trigger/send
+          if (sourceNode.type === 'human') {
+            const isTriggerOrSend = targetNode.type === 'trigger' || targetNode.type === 'send';
+            if (!isTriggerOrSend) {
+              return false;
+            }
+            
+            // 3. Check for duplicate connections between the same human and trigger/send node
+            const connectionKey = `${sourceNode.id}-${targetNode.id}`;
+            if (validConnections.has(connectionKey) && edge.data?.kind === 'human-assignment') {
+              return false; // Already have a connection between these nodes
+            }
+            
+            // Mark this as a valid connection
+            if (edge.data?.kind === 'human-assignment') {
+              validConnections.set(connectionKey, true);
+            }
+          }
+          
+          return true;
+        });
+        
         const next = {
           nodes: d.nodes,
-          edges: (d.edges || []).map((edgeRaw: any) => {
+          edges: filteredEdges.map((edgeRaw: any) => {
             const e = { ...edgeRaw }
             e.sourceHandle = migrateHandle(e.sourceHandle, 'source')
             e.targetHandle = migrateHandle(e.targetHandle, 'target')
@@ -74,7 +110,31 @@ export const useFlowStore = create<FlowState>()(
               e.target = s
               e.targetHandle = sh2
             }
-            if (!e.markerEnd) { e.markerEnd = { type: MarkerType.ArrowClosed } }
+            
+            // Xác định loại kết nối
+            const sourceNode = d.nodes.find(n => n.id === e.source);
+            const targetNode = d.nodes.find(n => n.id === e.target);
+            const isHumanAssignment = e.data?.kind === 'human-assignment' || 
+                                      (sourceNode?.type === 'human' && 
+                                      (targetNode?.type === 'trigger' || targetNode?.type === 'send'));
+            
+            // Đảm bảo styling đúng cho mọi loại kết nối
+            if (!e.markerEnd && !isHumanAssignment) {
+              e.markerEnd = { type: MarkerType.ArrowClosed };
+            } else if (isHumanAssignment) {
+              // Cập nhật các thuộc tính cho human assignment
+              e.data = e.data || {};
+              e.data.kind = 'human-assignment';
+              e.data.label = e.data.label || 'Assigned to';
+              e.markerEnd = undefined;
+              e.animated = false;
+              // Đảm bảo giữ lại style đúng
+              e.style = e.style || {
+                stroke: '#6366f1', // Indigo color
+                strokeWidth: 1.5,
+                strokeDasharray: '5 5' // Dashed line
+              };
+            }
             return e
           }),
         }
@@ -133,13 +193,54 @@ export const useFlowStore = create<FlowState>()(
           }
           return c
         }
-        const conn = normalize(connection)
-        const src = s.nodes.find((n) => n.id === conn.source)
+        let conn = normalize(connection)
+        let src = s.nodes.find((n) => n.id === conn.source)
+        let target = s.nodes.find((n) => n.id === conn.target)
         let edgeData: any = {}
         let style: any = {}
-        if (src?.type === 'decision') {
+        let animated = true
+        let markerEnd: any = { type: MarkerType.ArrowClosed }
+        
+        // Check for connections involving human nodes
+        const isHumanSource = src?.type === 'human';
+        const isHumanTarget = target?.type === 'human';
+        const isTriggerOrSend = (node?: any) => node?.type === 'trigger' || node?.type === 'send';
+        
+        // 1. Block all connections TO human nodes
+        if (isHumanTarget) {
+          return {}; // Return empty to prevent the connection
+        }
+        
+        // 2. For connections FROM human nodes
+        if (isHumanSource) {
+          // Only allow connections to trigger/send nodes
+          if (!isTriggerOrSend(target)) {
+            return {}; // Block connections to non-trigger/send nodes
+          }
+          
+          // Check if there's already a connection between these nodes
+          const existingConnection = s.edges.find(e => 
+            e.source === src.id && e.target === target?.id &&
+            (e.data as any)?.kind === 'human-assignment'
+          );
+          
+          if (existingConnection) {
+            return {}; // Block duplicate connections
+          }
+          
+          // Style the valid human to trigger/send connection
+          animated = false;
+          markerEnd = undefined; // No arrow markers for human assignments
+          edgeData = { label: 'Assigned to', kind: 'human-assignment' };
+          style = { 
+            stroke: '#6366f1', // Indigo color
+            strokeWidth: 1.5,
+            strokeDasharray: '5 5' // Dashed line
+          };
+        } else if (src && src.type === 'decision') {
           // Limit to max 2 outgoing edges: first = Yes, second = No
-          const outgoing = s.edges.filter((e) => e.source === src.id)
+          const srcId = src.id; // Store ID locally to satisfy TypeScript
+          const outgoing = s.edges.filter((e) => e.source === srcId)
           if (outgoing.length >= 2) {
             // refuse adding more than 2
             return {}
@@ -159,15 +260,22 @@ export const useFlowStore = create<FlowState>()(
             }
           }
         }
+        
         const edge: Edge = {
           ...conn,
           id: `${conn.source}-${conn.target}-${Date.now()}`,
           type: 'dir',
-          animated: true,
-          markerEnd: { type: MarkerType.ArrowClosed },
+          animated,
           data: edgeData,
           style,
         } as Edge
+        
+        // Chỉ thêm markerEnd nếu không phải là undefined
+        // Điều này đảm bảo undefined được bảo tồn trong cấu trúc dữ liệu
+        if (markerEnd !== undefined) {
+          (edge as any).markerEnd = markerEnd;
+        }
+        
         const prev = { nodes: s.nodes, edges: s.edges }
         const edges = addEdge(edge as any, s.edges as any) as unknown as AlgoEdge[]
         s.history.past.push(prev)

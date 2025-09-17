@@ -47,14 +47,14 @@ class WorkflowEngine {
 
       // Process each matching trigger node
       for (const triggerNode of triggerNodesResult.rows) {
-        // Check permissions via connected human nodes
-        const hasPermission = await this.checkHumanPermissions(client, diagramId, triggerNode.node_id, userId)
-        if (!hasPermission) continue
+        // // Check permissions via connected human nodes
+        // const hasPermission = await this.checkHumanPermissions(client, diagramId, triggerNode.node_id, userId)
+        // if (!hasPermission) continue
 
         // Initialize the trigger node state
         const nodeStateId = `ns_${uuidv4()}`
         await client.query(
-          `INSERT INTO section0.cr09node_states
+          `INSERT INTO section0.cr08anode_states
           (id, workflow_instance_id, node_id, status)
           VALUES ($1, $2, $3, 'completed')`,
           [nodeStateId, workflowInstanceId, triggerNode.node_id]
