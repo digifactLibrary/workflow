@@ -1,5 +1,6 @@
 const { Pool } = require('pg')
 const { v4: uuidv4 } = require('uuid')
+const fetch = require('node-fetch').default  // For making HTTP requests to email API
 
 class WorkflowEngine {
   constructor(db) {
@@ -7,54 +8,179 @@ class WorkflowEngine {
   }
 
   /**
+   * Activate a waiting trigger node to continue workflow execution
+   * 
+   * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string} nodeId - Node ID to activate
+   * @param {object} triggerData - Data to pass to the trigger node
+   * @param {string} userId - User who triggered the node
+   * @returns {Promise<boolean>} - Success status
+   */
+  async activateTriggerNode(diagramId, triggerEvent, triggerData, userId, mappingId = null) {
+    const client = await this.db.connect()
+    try {
+      await client.query('BEGIN')
+      
+      // Find the waiting node state for this node in this workflow instance
+      const nodeStateResult = await client.query(
+        `SELECT ns.id, ns.status 
+         FROM section0.cr08anode_states ns
+         WHERE ns.workflow_instance_id = $1 AND ns.node_id = $2 AND ns.status = 'waiting'`,
+        [workflowInstanceId, nodeId]
+      )
+      
+      if (nodeStateResult.rows.length === 0) {
+        throw new Error(`No waiting trigger node found with ID ${nodeId} in workflow ${workflowInstanceId}`)
+      }
+      
+      const nodeStateId = nodeStateResult.rows[0].id
+      
+      // Update the node data with the new trigger data and mark as completed
+      await client.query(
+        `UPDATE section0.cr08anode_states 
+         SET status = 'completed', 
+             data = jsonb_set(data, '{triggerData}', $1),
+             data = jsonb_set(data, '{triggeredBy}', $2),
+             data = jsonb_set(data, '{triggeredAt}', $3)
+         WHERE id = $4`,
+        [
+          JSON.stringify(triggerData), 
+          JSON.stringify(userId), 
+          JSON.stringify(new Date().toISOString()),
+          nodeStateId
+        ]
+      )
+      
+      // Process outgoing connections to continue the workflow
+      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
+        ...triggerData,
+        triggeredBy: userId,
+        triggeredAt: new Date().toISOString()
+      })
+      
+      // Process any pending nodes that might now be ready
+      await this.processPendingNodes(client, workflowInstanceId)
+      
+      await client.query('COMMIT')
+      return true
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('Error activating trigger node:', error)
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  /**
    * Start a new workflow instance
-   * @param {string} diagramId - The ID of the workflow diagram
+   * @param {string|null} diagramId - The ID of the workflow diagram (optional if mappingId provided)
    * @param {string} triggerEvent - Event that triggered the workflow
    * @param {object} triggerData - Data associated with the trigger
    * @param {string} userId - User who initiated the workflow
+   * @param {number|null} mappingId - The mapping ID to find relevant trigger nodes
    * @returns {Promise<string>} - The ID of the new workflow instance
    */
-  async startWorkflow(diagramId, triggerEvent, triggerData, userId) {
+  async startWorkflow(diagramId, triggerEvent, triggerData, userId, mappingId = null) {
     // Start transaction
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
 
+      // Find trigger nodes that match this event and mappingId if provided
+      let triggerNodesQuery = `
+        SELECT o.id, o.node_id, o.data, o.diagram_id
+         FROM section0.cr07Cdiagram_objects o
+         WHERE o.node_type = 'trigger' AND 
+         EXISTS (
+           SELECT 1 FROM jsonb_array_elements_text(o.data->'triggerEvents') event
+           WHERE event = $1
+         )`;
+      
+      let queryParams = [triggerEvent];
+      
+      // Filter by mappingId if provided
+      if (mappingId !== null) {
+        triggerNodesQuery += ` AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(o.data->'mappingIds') mapping
+          WHERE mapping::text = $2::text
+        )`;
+        queryParams.push(mappingId.toString());
+      }
+      
+      // Filter by diagramId if provided
+      if (diagramId) {
+        triggerNodesQuery += ` AND o.diagram_id = $${queryParams.length + 1}`;
+        queryParams.push(diagramId);
+      }
+      
+      const triggerNodesResult = await client.query(triggerNodesQuery, queryParams)
+      
+      // If no matching trigger nodes, return early
+      if (triggerNodesResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      
+      // Get the diagram IDs - we might have triggers from multiple diagrams
+      const diagrams = new Set(triggerNodesResult.rows.map(row => row.diagram_id));
+      
+      if (diagrams.size > 1 && !diagramId) {
+        console.warn(`Found triggers in multiple diagrams (${Array.from(diagrams).join(', ')}) for event ${triggerEvent} and mappingId ${mappingId}`);
+      }
+      
+      // Use provided diagramId or take the first one from the results
+      const effectiveDiagramId = diagramId || triggerNodesResult.rows[0].diagram_id;
+      
       // Create a new workflow instance
       const workflowInstanceId = `wf_${uuidv4()}`
       await client.query(
         `INSERT INTO section0.cr08workflow_instances
         (id, diagram_id, status, context, started_by)
         VALUES ($1, $2, 'active', $3, $4)`,
-        [workflowInstanceId, diagramId, JSON.stringify({ triggerEvent, ...triggerData }), parseInt(userId, 10)]
-      )
-
-      // Find trigger nodes that match this event
-      const triggerNodesResult = await client.query(
-        `SELECT o.id, o.node_id, o.data
-         FROM section0.cr07Cdiagram_objects o
-         WHERE o.diagram_id = $1 AND o.node_type = 'trigger' AND 
-         EXISTS (
-           SELECT 1 FROM jsonb_array_elements_text(o.data->'triggerEvents') event
-           WHERE event = $2
-         )`,
-        [diagramId, triggerEvent]
+        [workflowInstanceId, effectiveDiagramId, JSON.stringify({ triggerEvent, mappingId, ...triggerData }), parseInt(userId, 10)]
       )
 
       // Process each matching trigger node
       for (const triggerNode of triggerNodesResult.rows) {
+        // Skip trigger nodes from other diagrams if a specific diagram was targeted
+        if (diagramId && triggerNode.diagram_id !== diagramId) {
+          continue;
+        }
 
+        // Verify this is an external trigger node (not an internal one)
+        const isInternalTrigger = await this.isInternalTriggerNode(client, triggerNode.node_id);
+        if (isInternalTrigger) {
+          console.warn(`Skipping internal trigger node ${triggerNode.node_id} - internal triggers should be activated via /activate-trigger API`);
+          continue;
+        }
+        
         // Initialize the trigger node state
         const nodeStateId = `ns_${uuidv4()}`
+        
+        // Determine initial status based on trigger type
+        let initialStatus = 'completed';
+        
+        // Special case: If this is an 'approve' trigger, mark it as waiting instead
+        if (triggerNode.data.triggerEvents.includes('approve')) {
+          initialStatus = 'waiting';
+          // For approve triggers, we'll need to create approval records
+          await this.createHumanApprovals(client, nodeStateId, triggerNode.data);
+        }
+        
+        // Create the node state
         await client.query(
           `INSERT INTO section0.cr08anode_states
-          (id, workflow_instance_id, node_id, status)
-          VALUES ($1, $2, $3, 'completed')`,
-          [nodeStateId, workflowInstanceId, triggerNode.node_id]
+          (id, workflow_instance_id, node_id, status, data)
+          VALUES ($1, $2, $3, $4, $5)`,
+          [nodeStateId, workflowInstanceId, triggerNode.node_id, initialStatus, JSON.stringify(triggerData)]
         )
 
-        // Process outgoing connections from this trigger node
-        await this.processOutgoingConnections(client, workflowInstanceId, triggerNode.node_id, triggerData)
+        // Only process outgoing connections if the node is not waiting
+        if (initialStatus === 'completed') {
+          // Process outgoing connections from this trigger node
+          await this.processOutgoingConnections(client, workflowInstanceId, triggerNode.node_id, triggerData);
+        }
       }
 
       // Process pending nodes to continue the workflow
@@ -69,59 +195,6 @@ class WorkflowEngine {
     } finally {
       client.release()
     }
-  }
-
-  /**
-   * Check if user has permission to trigger the workflow
-   * @param {object} client - Database client
-   * @param {string} diagramId - Diagram ID
-   * @param {string} triggerNodeId - ID of the trigger node
-   * @param {string} userId - User ID to check
-   * @returns {Promise<boolean>} - Whether user has permission
-   */
-  async checkHumanPermissions(client, diagramId, triggerNodeId, userId) {
-    // Find connected human nodes
-    const humanNodesResult = await client.query(
-      `SELECT o.id, o.node_id, o.data
-       FROM section0.cr07Cdiagram_objects o
-       JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
-       WHERE o.diagram_id = $1 AND o.node_type = 'human' AND c.target_node_id = $2`,
-      [diagramId, triggerNodeId]
-    )
-
-    // If no human nodes are connected, anyone can trigger
-    if (humanNodesResult.rows.length === 0) return true
-
-    // Check if user is in any of the connected human nodes
-    for (const humanNode of humanNodesResult.rows) {
-      const data = humanNode.data
-
-      // Check personal users
-      const personalUsers = data.humanIds || []
-      if (personalUsers.includes(userId)) return true
-
-      // Check role-based users
-      if (data.humanRoleIds && data.humanRoleIds.length > 0) {
-        // We'd need to check if the user has any of these roles
-        // This depends on your role management system
-        const userRoles = await this.getUserRoles(client, userId)
-        if (data.humanRoleIds.some(roleId => userRoles.includes(roleId))) {
-          return true
-        }
-      }
-
-      // Check department-based users
-      if (data.humanDepartmentIds && data.humanDepartmentIds.length > 0) {
-        // We'd need to check if the user is in any of these departments
-        // This depends on your department management system
-        const userDepartments = await this.getUserDepartments(client, userId)
-        if (data.humanDepartmentIds.some(deptId => userDepartments.includes(deptId))) {
-          return true
-        }
-      }
-    }
-
-    return false
   }
 
   /**
@@ -390,12 +463,21 @@ class WorkflowEngine {
         return await this.executeOrNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
       case 'send':
         return await this.executeSendNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
+      case 'trigger':
+        return await this.executeInternalTriggerNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
       case 'end':
         // Mark the node as completed
         await client.query(
           `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
           [nodeStateId]
         )
+        
+        // Mark the workflow as completed
+        await client.query(
+          `UPDATE section0.cr08workflow_instances SET status = 'completed', completed_at = now() WHERE id = $1`,
+          [workflowInstanceId]
+        )
+        
         // End node doesn't have outgoing connections
         return { continue: false }
       default:
@@ -404,6 +486,53 @@ class WorkflowEngine {
     }
   }
 
+  /**
+   * Execute an internal trigger node within an existing workflow
+   * @param {object} client - Database client
+   * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string} nodeStateId - Node state ID
+   * @param {string} nodeId - Node ID
+   * @param {object} inputData - Input data from previous node
+   * @returns {Promise<object>} - Result of the execution
+   */
+  async executeInternalTriggerNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
+    // Get the trigger node details
+    const nodeResult = await client.query(
+      `SELECT o.data FROM section0.cr07Cdiagram_objects o WHERE o.node_id = $1`,
+      [nodeId]
+    )
+    
+    if (nodeResult.rows.length === 0) return { continue: false }
+    
+    const nodeData = nodeResult.rows[0].data
+    const triggerEvents = nodeData.triggerEvents || []
+    
+    // Check if this is an 'approve' trigger that should wait for human input
+    if (triggerEvents.includes('approve')) {
+      // Update node state to waiting
+      await client.query(
+        `UPDATE section0.cr08anode_states SET status = 'waiting' WHERE id = $1`,
+        [nodeStateId]
+      )
+      
+      // Create approval records for humans
+      await this.createHumanApprovals(client, nodeStateId, nodeData)
+      
+      return { continue: false } // Stop processing this branch until approved
+    } 
+    
+    // For other trigger types, we can immediately mark as completed and continue
+    await client.query(
+      `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
+      [nodeStateId]
+    )
+    
+    // Process outgoing connections
+    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, inputData)
+    
+    return { continue: true }
+  }
+  
   /**
    * Execute a decision node
    * @param {object} client - Database client
@@ -630,62 +759,124 @@ class WorkflowEngine {
    * @returns {Promise<object>} - Result of the execution
    */
   async executeSendNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    // Get the node details for send configuration
-    const nodeResult = await client.query(
-      `SELECT o.data FROM section0.cr07Cdiagram_objects o WHERE o.node_id = $1`,
-      [nodeId]
+    // Get workflow information for context
+    const workflowResult = await client.query(
+      `SELECT wi.started_by, o.data, o.id as obj_id, o.diagram_id
+       FROM section0.cr08workflow_instances wi
+       JOIN section0.cr07Cdiagram_objects o ON o.node_id = $1
+       WHERE wi.id = $2 AND wi.diagram_id = o.diagram_id`,
+      [nodeId, workflowInstanceId]
     )
     
-    if (nodeResult.rows.length === 0) return { continue: false }
+    if (workflowResult.rows.length === 0) return { continue: false }
     
-    const nodeData = nodeResult.rows[0].data
+    const workflowInfo = workflowResult.rows[0]
+    const senderId = workflowInfo.started_by
+    const nodeData = workflowInfo.data
+    const sendNodeObjectId = workflowInfo.obj_id
     const sendKinds = nodeData.sendKinds || []
+    
+    // Get sender name from user table
+    let senderName = 'System'
+    try {
+      const senderResult = await client.query(
+        `SELECT hoten FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
+        [senderId]
+      )
+      if (senderResult.rows.length > 0) {
+        senderName = senderResult.rows[0].hoten
+      }
+    } catch (error) {
+      console.warn('Could not fetch sender name:', error)
+    }
     
     // Find connected human nodes to determine recipients
     const humanNodesResult = await client.query(
       `SELECT o.id, o.node_id, o.data
        FROM section0.cr07Cdiagram_objects o
        JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
-       WHERE o.diagram_id = (
-         SELECT diagram_id FROM section0.cr08workflow_instances WHERE id = $1
-       ) AND o.node_type = 'human' AND c.target_node_id = $2`,
-      [workflowInstanceId, nodeId]
+       WHERE o.diagram_id = $1 AND o.node_type = 'human' AND c.target_node_id = $2`,
+      [workflowInfo.diagram_id, nodeId]
     )
     
     // Prepare recipients based on human nodes
-    const recipients = []
+    const humanRoleIds = new Set()
+    const humanIds = new Set()
+    
     for (const humanNode of humanNodesResult.rows) {
-      const data = humanNode.data
+      const humanData = humanNode.data || {}
       
-      // Add personal users
-      if (data.humanIds) {
-        recipients.push(...data.humanIds)
-      }
-      
-      // Add users from roles
-      if (data.humanRoleIds) {
-        for (const roleId of data.humanRoleIds) {
-          const usersResult = await client.query(
-            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
-            [roleId]
-          )
-          usersResult.rows.forEach(row => recipients.push(row.id))
-        }
+      // Check if the human node specifies roles
+      if (humanData.humanType === 'role' && Array.isArray(humanData.humanRoleIds)) {
+        humanData.humanRoleIds.forEach(roleId => humanRoleIds.add(roleId))
+      } 
+      // Check for direct user IDs
+      if (Array.isArray(humanData.humanIds)) {
+        humanData.humanIds.forEach(userId => humanIds.add(userId))
       }
     }
     
-    // Send notifications based on sendKinds
-    // This would integrate with your actual notification system
-    for (const sendKind of sendKinds) {
-      switch (sendKind) {
-        case 'inapp':
-          this.sendInAppNotifications(client, recipients, nodeData.label || 'Notification', inputData)
-          break
-        case 'email':
-          this.sendEmailNotifications(client, recipients, nodeData.label || 'Notification', inputData)
-          break
-        // Add other notification methods as needed
+    // Get users by role
+    const wfUsersByRole = []
+    if (humanRoleIds.size > 0) {
+      const roleIdsArray = Array.from(humanRoleIds)
+      const usersByRoleResult = await client.query(
+        `SELECT id, email 
+         FROM section9nhansu.ns01taikhoannguoidung 
+         WHERE recordidchucdanh = ANY($1) AND trangthai = 'Đang làm việc'`,
+        [roleIdsArray]
+      ).catch(() => ({ rows: [] }))
+      
+      if (usersByRoleResult.rows) {
+        wfUsersByRole.push(...usersByRoleResult.rows)
       }
+    }
+    
+    // Get users by direct ID
+    const wfUsersByDirectId = []
+    if (humanIds.size > 0) {
+      const humanIdsArray = Array.from(humanIds)
+      const usersByDirectIdResult = await client.query(
+        `SELECT id, email 
+         FROM section9nhansu.ns01taikhoannguoidung 
+         WHERE id = ANY($1) AND trangthai = 'Đang làm việc'`,
+        [humanIdsArray]
+      ).catch(() => ({ rows: [] }))
+      
+      if (usersByDirectIdResult.rows) {
+        wfUsersByDirectId.push(...usersByDirectIdResult.rows)
+      }
+    }
+    
+    // Combine users (ensuring unique IDs and including email addresses)
+    const uniqueReceivers = new Map()
+    
+    // Combine both arrays
+    const allUsers = [].concat(wfUsersByRole, wfUsersByDirectId)
+    allUsers.forEach(user => {
+      if (user && user.id && !uniqueReceivers.has(user.id)) {
+        uniqueReceivers.set(user.id, user)
+      }
+    })
+    
+    // Create two arrays: one for IDs and one for full user objects (with emails)
+    const receiversIds = Array.from(uniqueReceivers.keys())
+    const receiversData = Array.from(uniqueReceivers.values())
+
+    // Check if the input data has event information
+    const needAction = inputData.eventName === 'approve' || inputData.eventName === 'sendapprove'
+    
+    // Prepare enriched data for notification
+    const enrichedData = {
+      ...inputData,
+      eventName: inputData.eventName || '',
+      modelName: inputData.modelName || '',
+      objectDisplayName: inputData.objectDisplayName || ''
+    }
+    
+    // Send notifications based on sendKinds
+    for (const sendKind of sendKinds) {
+      await this.sendNotificationByType(client, sendKind, senderId, senderName, needAction, enrichedData, receiversIds, receiversData)
     }
     
     // Mark the node as completed
@@ -752,24 +943,174 @@ class WorkflowEngine {
     return false
   }
 
-  // Helper methods for sending notifications
-  
-  async sendInAppNotifications(client, recipients, title, data) {
-    // Implementation would insert records into your notification table
-    for (const userId of recipients) {
-      await client.query(
-        `INSERT INTO section0.cr01notification
-         (sender, receiver, title, details, document, isaction)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        ['system', userId, title, JSON.stringify(data), data.documentId || null, true]
-      )
+  // Unified notification method following processMessageByType pattern
+  async sendNotificationByType(client, sendType, senderId, senderName, needAction, data, receiversIds, receiversData) {
+    // Process based on notification type
+    if (sendType === 'inapp') {
+      // Process in-app notifications
+      for (const receiverId of receiversIds) {
+        if (!receiverId) continue;
+        
+        // Prepare notification details
+        const title = data.eventName ? `Thông báo ${data.eventName}` : 'Thông báo mới';
+        const details = `Người gửi: ${senderName}\n${data.eventName || ''} ${data.modelName || ''}: ${data.objectDisplayName || ''}`;
+        
+        // Insert notification into database
+        await client.query(
+          `INSERT INTO section0.cr01notification (
+            isread, sender, receiver, isaction, relatedid, datatable,
+            active, createdate, writedate, createuid, writeuid, document, title, details
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, now(), now(), $8, $9, $10, $11, $12
+          )`,
+          [
+            false, // isread
+            senderId.toString(), // sender
+            receiverId.toString(), // receiver
+            needAction === true, // isaction
+            data.Id || null, // relatedid
+            data.datatable || null, // datatable
+            1, // active
+            0, // createuid
+            0, // writeuid
+            data.document || null, // document
+            title, // title
+            details // details
+          ]
+        );
+        
+        console.log('Workflow in-app notification created:', { receiver: receiverId, title });
+      }
+    } else if (sendType === 'email') {
+      // Process email notifications (non-blocking, best effort)
+      
+      // Get email configuration from environment variables
+      const mailApiUrl = process.env.MAILURL;
+      const mailApiKey = process.env.MAILAPIKEY;
+      
+      if (!mailApiUrl || !mailApiKey) {
+        console.error('Email configuration missing: MAILURL or MAILAPIKEY not defined in environment');
+        return;
+      }
+      
+      // Prepare email content
+      const subject = data.eventName ? `Thông báo ${data.eventName}` : 'Thông báo mới';
+      const body = `Người gửi: ${senderName}\n${data.eventName || ''} ${data.modelName || ''}: ${data.objectDisplayName || ''}`;
+      
+      // Track how many email sending tasks we've started
+      let emailTasksStarted = 0;
+      
+      // Process each receiver that has an email address (best effort, non-blocking)
+      for (const receiver of receiversData) {
+        if (!receiver || !receiver.email) continue;
+        
+        // Prepare payload for email API
+        const payload = {
+          to: receiver.email,
+          subject: subject,
+          body: body,
+          html_body: body.replace(/\n/g, '<br>') // Convert line breaks to HTML
+        };
+        
+        // Configure request options
+        const options = {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': mailApiKey
+          },
+          body: JSON.stringify(payload)
+        };
+        
+        console.log('Workflow Email API request scheduled:', {
+          url: mailApiUrl,
+          recipient: receiver.email,
+          subject: subject
+        });
+        
+        // Increment the counter for scheduled email tasks
+        emailTasksStarted++;
+        
+        // Send email via API with SMTP fallback (non-blocking, best effort)
+        try {
+          fetch(mailApiUrl, options)
+            .then(response => {
+              return response.text().then(text => ({ status: response.status, text }));
+            })
+            .then(({ status, text }) => {
+              console.log('Workflow Email API response:', { recipient: receiver.email, status, text });
+              if (status !== 200 && status !== 201) {
+                console.error(`Workflow Email API error for ${receiver.email}: ${status} - ${text}`);
+                // API failed, attempt SMTP fallback
+                console.log(`Attempting SMTP fallback for ${receiver.email}`);
+                return this.sendEmailSmtp(receiver.email, subject, body);
+              }
+              return true;
+            })
+            .catch(error => {
+              console.error(`Failed to send email to ${receiver.email} via API:`, error);
+              // API request failed, attempt SMTP fallback
+              console.log(`Attempting SMTP fallback for ${receiver.email} after API failure`);
+              return this.sendEmailSmtp(receiver.email, subject, body);
+            })
+            .catch(error => {
+              // Both API and SMTP failed
+              console.error(`All email sending methods failed for ${receiver.email}:`, error);
+            });
+        } catch (error) {
+          console.error(`Error initiating email send for ${receiver.email}:`, error);
+        }
+      }
+      
+      console.log(`Workflow sending ${emailTasksStarted} emails in the background`);
+    } else {
+      console.log(`Notification type ${sendType} not implemented in workflow engine`);
     }
   }
   
-  async sendEmailNotifications(client, recipients, subject, data) {
-    // Implementation would call your email sending function
-    // This is a placeholder - integrate with your actual email system
-    console.log(`Would send email to ${recipients.join(', ')} with subject "${subject}"`)
+  // Email sending helper with actual SMTP implementation
+  async sendEmailSmtp(to, subject, body) {
+    try {
+      // Check if SMTP configuration exists
+      const smtpHost = process.env.SMTPHOST;
+      const smtpPort = process.env.SMTPPORT;
+      const smtpUser = process.env.SMTPUSER;
+      const smtpPassword = process.env.SMTPPASSWORD;
+      
+      if (!smtpHost || !smtpPort || !smtpUser || !smtpPassword) {
+        console.error('SMTP configuration missing');
+        return false;
+      }
+      
+      // Need to dynamically import nodemailer since it might not be available in all contexts
+      const nodemailer = require('nodemailer');
+      
+      // Create transporter
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === '465', // true for 465, false for other ports
+        auth: {
+          user: smtpUser,
+          pass: smtpPassword
+        }
+      });
+      
+      // Send mail
+      const info = await transporter.sendMail({
+        from: `"Workflow Notification" <${smtpUser}>`,
+        to: to,
+        subject: subject,
+        text: body,
+        html: body.replace(/\n/g, '<br>')
+      });
+      
+      console.log('Workflow email sent via SMTP:', { messageId: info.messageId, recipient: to });
+      return true;
+    } catch (error) {
+      console.error('Workflow SMTP Email error:', error);
+      return false;
+    }
   }
   
   // Methods for user role/department management - these would integrate with your system
@@ -923,6 +1264,107 @@ class WorkflowEngine {
     } finally {
       client.release()
     }
+  }
+
+  /**
+   * Execute a trigger node encountered during workflow execution
+   * @param {object} client - Database client
+   * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string} nodeStateId - Node state ID
+   * @param {string} nodeId - Node ID
+   * @param {object} nodeData - Node data from workflow context
+   * @returns {Promise<object>} - Result of the execution
+   */
+  async executeInternalTriggerNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData) {
+    // Get the trigger node data
+    const triggerNodeResult = await client.query(
+      `SELECT o.data
+        FROM section0.cr07Cdiagram_objects o
+        WHERE o.node_id = $1`,
+      [nodeId]
+    );
+
+    if (triggerNodeResult.rows.length === 0) {
+      console.warn(`Trigger node ${nodeId} not found in diagram objects`);
+      return { continue: false };
+    }
+
+    const triggerNodeData = triggerNodeResult.rows[0].data;
+    
+    // Check if this is an internal trigger (node in the middle of a workflow)
+    // or an external trigger (node that should only be activated via API)
+    const isInternalTrigger = await this.isInternalTriggerNode(client, nodeId);
+    
+    if (isInternalTrigger) {
+      // If this is an internal trigger with an 'approve' event, create approval records
+      if (triggerNodeData.triggerEvents && triggerNodeData.triggerEvents.includes('approve')) {
+        await this.createHumanApprovals(client, nodeStateId, triggerNodeData);
+      }
+      
+      // Mark the node as waiting - it will be activated later via the API
+      await client.query(
+        `UPDATE section0.cr08anode_states SET status = 'waiting' WHERE id = $1`,
+        [nodeStateId]
+      );
+      
+      // The workflow will pause here until the trigger node is activated
+      return { continue: false };
+    } else {
+      // For external triggers that shouldn't be in the middle of a workflow,
+      // log a warning and mark as completed to allow workflow to continue
+      console.warn(`External trigger node ${nodeId} encountered during workflow execution. This might indicate a workflow design issue.`);
+      
+      await client.query(
+        `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
+        [nodeStateId]
+      );
+      
+      // Process outgoing connections to continue the workflow
+      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeData);
+      
+      return { continue: true };
+    }
+  }
+
+  /**
+   * Determines if a trigger node is an internal node (in the middle of a workflow)
+   * or an external node (should be activated via API only)
+   * 
+   * @param {object} client - Database client
+   * @param {string} nodeId - Node ID to check
+   * @returns {Promise<boolean>} - True if it's an internal trigger node
+   */
+  async isInternalTriggerNode(client, nodeId) {
+    // Check if this node has any incoming connections (excluding self-connections)
+    // If it has incoming connections, it's an internal trigger node
+    const incomingConnectionsResult = await client.query(
+      `SELECT COUNT(*) as count
+       FROM section0.cr07Ddiagram_connections c
+       WHERE c.target_node_id = $1 AND c.source_node_id != $1`,
+      [nodeId]
+    );
+    
+    const incomingCount = parseInt(incomingConnectionsResult.rows[0].count, 10);
+    
+    // If it has incoming connections, it's an internal trigger node
+    if (incomingCount > 0) {
+      return true;
+    }
+    
+    // Check if this is connected to a start node (special case)
+    // A trigger connected directly to a start node should still be treated as external
+    const startNodeConnectionResult = await client.query(
+      `SELECT COUNT(*) as count
+       FROM section0.cr07Ddiagram_connections c
+       JOIN section0.cr07Cdiagram_objects o ON c.source_node_id = o.node_id
+       WHERE c.target_node_id = $1 AND o.node_type = 'start'`,
+      [nodeId]
+    );
+    
+    const startNodeConnections = parseInt(startNodeConnectionResult.rows[0].count, 10);
+    
+    // If connected to start node, it's NOT an internal trigger (it's external)
+    return startNodeConnections === 0 && incomingCount > 0;
   }
 }
 

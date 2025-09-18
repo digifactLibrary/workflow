@@ -13,10 +13,14 @@ module.exports = function(app, db) {
    */
   app.post('/api/workflow/trigger', async (req, res) => {
     try {
-      const { diagramId, triggerEvent, userId, data = {} } = req.body
+      const { diagramId, triggerEvent, userId, mappingId, data = {} } = req.body
       
-      if (!diagramId || !triggerEvent) {
-        return res.status(400).json({ error: 'diagramId and triggerEvent are required' })
+      if (!triggerEvent) {
+        return res.status(400).json({ error: 'triggerEvent is required' })
+      }
+      
+      if (!mappingId && !diagramId) {
+        return res.status(400).json({ error: 'Either mappingId or diagramId must be provided' })
       }
       
       if (!userId) {
@@ -28,7 +32,8 @@ module.exports = function(app, db) {
         diagramId, 
         triggerEvent, 
         data, 
-        userId
+        userId,
+        mappingId
       )
       
       res.json({
@@ -69,6 +74,38 @@ module.exports = function(app, db) {
       res.json({ success: true })
     } catch (error) {
       console.error('Error processing approval:', error)
+      res.status(500).json({ error: error.message || 'Internal server error' })
+    }
+  })
+  
+  /**
+   * Activate a waiting trigger node to continue workflow execution
+   */
+  app.post('/api/workflow/activate-trigger', async (req, res) => {
+    try {
+      const { workflowInstanceId, nodeId, data = {} } = req.body
+      
+      if (!workflowInstanceId || !nodeId) {
+        return res.status(400).json({ error: 'workflowInstanceId and nodeId are required' })
+      }
+      
+      // Get user ID from auth middleware
+      const userId = req.userId
+      if (!userId) {
+        return res.status(401).json({ error: 'Authentication required' })
+      }
+      
+      // Activate the trigger node
+      await workflowEngine.activateTriggerNode(
+        workflowInstanceId,
+        nodeId,
+        data,
+        userId
+      )
+      
+      res.json({ success: true })
+    } catch (error) {
+      console.error('Error activating trigger node:', error)
       res.status(500).json({ error: error.message || 'Internal server error' })
     }
   })
