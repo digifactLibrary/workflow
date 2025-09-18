@@ -13,14 +13,14 @@ module.exports = function(app, db) {
    */
   app.post('/api/workflow/trigger', async (req, res) => {
     try {
-      const { diagramId, triggerEvent, userId, mappingId, data = {} } = req.body
+      const { triggerEvent, userId, mappingId, data = {} } = req.body
       
       if (!triggerEvent) {
         return res.status(400).json({ error: 'triggerEvent is required' })
       }
       
-      if (!mappingId && !diagramId) {
-        return res.status(400).json({ error: 'Either mappingId or diagramId must be provided' })
+      if (!mappingId) {
+        return res.status(400).json({ error: 'mappingId is required' })
       }
       
       if (!userId) {
@@ -28,10 +28,9 @@ module.exports = function(app, db) {
       }
       
       // Start workflow execution
-      const workflowInstanceId = await workflowEngine.startWorkflow(
-        diagramId, 
-        triggerEvent, 
-        data, 
+      const workflowInstanceId = await workflowEngine.executeTriggerNode(
+        triggerEvent,
+        data,
         userId,
         mappingId
       )
@@ -51,14 +50,12 @@ module.exports = function(app, db) {
    */
   app.post('/api/workflow/approval', async (req, res) => {
     try {
-      const { nodeStateId, approved, comment } = req.body
+      const { mappingId, objectId, requesterId, userId, approved, comment } = req.body
       
-      if (!nodeStateId) {
-        return res.status(400).json({ error: 'nodeStateId is required' })
+      if (!objectId) {
+        return res.status(400).json({ error: 'objectId is required' })
       }
       
-      // Get user ID from auth middleware
-      const userId = req.userId
       if (!userId) {
         return res.status(401).json({ error: 'Authentication required' })
       }
@@ -74,38 +71,6 @@ module.exports = function(app, db) {
       res.json({ success: true })
     } catch (error) {
       console.error('Error processing approval:', error)
-      res.status(500).json({ error: error.message || 'Internal server error' })
-    }
-  })
-  
-  /**
-   * Activate a waiting trigger node to continue workflow execution
-   */
-  app.post('/api/workflow/activate-trigger', async (req, res) => {
-    try {
-      const { workflowInstanceId, nodeId, data = {} } = req.body
-      
-      if (!workflowInstanceId || !nodeId) {
-        return res.status(400).json({ error: 'workflowInstanceId and nodeId are required' })
-      }
-      
-      // Get user ID from auth middleware
-      const userId = req.userId
-      if (!userId) {
-        return res.status(401).json({ error: 'Authentication required' })
-      }
-      
-      // Activate the trigger node
-      await workflowEngine.activateTriggerNode(
-        workflowInstanceId,
-        nodeId,
-        data,
-        userId
-      )
-      
-      res.json({ success: true })
-    } catch (error) {
-      console.error('Error activating trigger node:', error)
       res.status(500).json({ error: error.message || 'Internal server error' })
     }
   })

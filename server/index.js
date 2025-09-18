@@ -155,7 +155,6 @@ async function ensureSchema() {
       workflow_instance_id TEXT NOT NULL,
       node_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
-      data JSONB DEFAULT '{}',
       inputs_required INTEGER DEFAULT 0,
       inputs_received INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1557,8 +1556,15 @@ ensureSchema()
   .then(() => {
     // Check SMTP config (but don't block startup if it fails)
     checkSmtpConfig();
-    
-    app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
+    import('./workflow-routes.js').then(module => {
+      const setupWorkflowRoutes = module.default || module;
+      setupWorkflowRoutes(app, db);
+      
+      app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
+    }).catch(err => {
+      console.error('Không thể import workflow-routes:', err);
+      app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
+    });
   })
   .catch((e) => {
     console.error('Failed to init schema', e);

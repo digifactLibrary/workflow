@@ -8,64 +8,54 @@ class WorkflowEngine {
   }
 
   /**
-   * Activate a waiting trigger node to continue workflow execution
-   * 
-   * @param {string} workflowInstanceId - Workflow instance ID
-   * @param {string} nodeId - Node ID to activate
-   * @param {object} triggerData - Data to pass to the trigger node
-   * @param {string} userId - User who triggered the node
-   * @returns {Promise<boolean>} - Success status
+   * Execute a trigger node based on an event and mapping ID
+   * @param {string} eventName - The event that triggered the workflow (e.g., 'create', 'update', 'approve')
+   * @param {object} triggerData - Data associated with the trigger (e.g., record details)
+   * @param {string} userId - User who initiated the trigger
+   * @param {number} mappingId - The mapping ID to find the module
+   * @return {Promise<void>}
    */
-  async activateTriggerNode(diagramId, triggerEvent, triggerData, userId, mappingId = null) {
+  async executeTriggerNode(eventName, triggerData, userId, mappingId) {
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
-      
-      // Find the waiting node state for this node in this workflow instance
-      const nodeStateResult = await client.query(
-        `SELECT ns.id, ns.status 
-         FROM section0.cr08anode_states ns
-         WHERE ns.workflow_instance_id = $1 AND ns.node_id = $2 AND ns.status = 'waiting'`,
-        [workflowInstanceId, nodeId]
+
+      // Find the trigger node by objectId
+      const triggerNodeResult = await client.query(
+        `SELECT o.id, o.node_id, o.data, o.diagram_id
+         FROM section0.cr07Cdiagram_objects o
+         WHERE node_type = 'trigger' AND 
+          data->'triggerEvents' @> $1::jsonb AND
+          data->'mappingIds' @> $2::jsonb
+         LIMIT 1`,
+        [JSON.stringify([eventName]), parseInt(mappingId, 10)]
       )
-      
-      if (nodeStateResult.rows.length === 0) {
-        throw new Error(`No waiting trigger node found with ID ${nodeId} in workflow ${workflowInstanceId}`)
+      const triggerNode = triggerNodeResult.rows[0]
+      if (!triggerNode) {
+        throw new Error(`Trigger node not found for event ${eventName} and mapping ${mappingId}`)
       }
-      
-      const nodeStateId = nodeStateResult.rows[0].id
-      
-      // Update the node data with the new trigger data and mark as completed
-      await client.query(
-        `UPDATE section0.cr08anode_states 
-         SET status = 'completed', 
-             data = jsonb_set(data, '{triggerData}', $1),
-             data = jsonb_set(data, '{triggeredBy}', $2),
-             data = jsonb_set(data, '{triggeredAt}', $3)
-         WHERE id = $4`,
-        [
-          JSON.stringify(triggerData), 
-          JSON.stringify(userId), 
-          JSON.stringify(new Date().toISOString()),
-          nodeStateId
-        ]
+
+      const startNodeResult = await client.query(
+        `SELECT COUNT(*) as count
+        FROM section0.cr07Cdiagram_objects o
+        JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
+        WHERE o.diagram_id = $1 AND o.node_type = 'start' AND c.target_node_id = $2`,
+        [triggerNode.diagram_id, triggerNode.node_id]
       )
-      
-      // Process outgoing connections to continue the workflow
-      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
-        ...triggerData,
-        triggeredBy: userId,
-        triggeredAt: new Date().toISOString()
-      })
-      
-      // Process any pending nodes that might now be ready
-      await this.processPendingNodes(client, workflowInstanceId)
-      
+
+      if (parseInt(startNodeResult.rows[0].count, 10) > 0) {
+        await this.startWorkflow(eventName, triggerNode, triggerData, userId, mappingId)
+        await client.query('COMMIT')
+        return
+      }
+
+      // Execute the trigger node with the provided data
+      // await this.executeNode(triggerNode, triggerData, userId)
+
       await client.query('COMMIT')
-      return true
     } catch (error) {
       await client.query('ROLLBACK')
-      console.error('Error activating trigger node:', error)
+      console.error('Error executing trigger node:', error)
       throw error
     } finally {
       client.release()
@@ -74,117 +64,78 @@ class WorkflowEngine {
 
   /**
    * Start a new workflow instance
-   * @param {string|null} diagramId - The ID of the workflow diagram (optional if mappingId provided)
-   * @param {string} triggerEvent - Event that triggered the workflow
+   * @param {string} eventName - The ID of the workflow diagram (optional if mappingId provided)
+   * @param {string} triggerNodeId - The ID of the trigger node
    * @param {object} triggerData - Data associated with the trigger
    * @param {string} userId - User who initiated the workflow
    * @param {number|null} mappingId - The mapping ID to find relevant trigger nodes
    * @returns {Promise<string>} - The ID of the new workflow instance
    */
-  async startWorkflow(diagramId, triggerEvent, triggerData, userId, mappingId = null) {
+  async startWorkflow(eventName, triggerNode, triggerData, userId, mappingId = null) {
     // Start transaction
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
 
-      // Find trigger nodes that match this event and mappingId if provided
-      let triggerNodesQuery = `
-        SELECT o.id, o.node_id, o.data, o.diagram_id
-         FROM section0.cr07Cdiagram_objects o
-         WHERE o.node_type = 'trigger' AND 
-         EXISTS (
-           SELECT 1 FROM jsonb_array_elements_text(o.data->'triggerEvents') event
-           WHERE event = $1
-         )`;
-      
-      let queryParams = [triggerEvent];
-      
-      // Filter by mappingId if provided
-      if (mappingId !== null) {
-        triggerNodesQuery += ` AND EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(o.data->'mappingIds') mapping
-          WHERE mapping::text = $2::text
-        )`;
-        queryParams.push(mappingId.toString());
-      }
-      
-      // Filter by diagramId if provided
-      if (diagramId) {
-        triggerNodesQuery += ` AND o.diagram_id = $${queryParams.length + 1}`;
-        queryParams.push(diagramId);
-      }
-      
-      const triggerNodesResult = await client.query(triggerNodesQuery, queryParams)
-      
       // If no matching trigger nodes, return early
-      if (triggerNodesResult.rows.length === 0) {
+      if (!triggerNode) {
         await client.query('ROLLBACK');
         return null;
       }
       
-      // Get the diagram IDs - we might have triggers from multiple diagrams
-      const diagrams = new Set(triggerNodesResult.rows.map(row => row.diagram_id));
-      
-      if (diagrams.size > 1 && !diagramId) {
-        console.warn(`Found triggers in multiple diagrams (${Array.from(diagrams).join(', ')}) for event ${triggerEvent} and mappingId ${mappingId}`);
+      // Use provided diagramId from triggerNode
+      const effectiveDiagramId = triggerNode.diagram_id;
+      const objectId = triggerData.Id ? triggerData.Id : 0;
+      // Check if another workflow instance is already active for this mappingId
+      const activeInstanceResult = await client.query(
+        `SELECT id FROM section0.cr08workflow_instances
+         WHERE diagram_id = $1 AND 
+         context->>'startMappingId' = $2 AND
+         context->>'startObjectId' = $3 AND
+         status = 'active' AND
+         started_by = $4
+         `,
+        [effectiveDiagramId, mappingId, objectId, userId]
+      );
+
+      if (activeInstanceResult.rows.length > 0) {
+        console.warn(`Another workflow instance is already active for mappingId ${mappingId} with objectId ${objectId}`);
+        await client.query('ROLLBACK');
+        return null;
       }
-      
-      // Use provided diagramId or take the first one from the results
-      const effectiveDiagramId = diagramId || triggerNodesResult.rows[0].diagram_id;
-      
+
       // Create a new workflow instance
       const workflowInstanceId = `wf_${uuidv4()}`
+      const enrichedContext = { 
+        startMappingId: mappingId,
+        startObjectId: objectId
+      };
       await client.query(
         `INSERT INTO section0.cr08workflow_instances
         (id, diagram_id, status, context, started_by)
         VALUES ($1, $2, 'active', $3, $4)`,
-        [workflowInstanceId, effectiveDiagramId, JSON.stringify({ triggerEvent, mappingId, ...triggerData }), parseInt(userId, 10)]
+        [workflowInstanceId, effectiveDiagramId, JSON.stringify(enrichedContext), parseInt(userId, 10)]
       )
 
-      // Process each matching trigger node
-      for (const triggerNode of triggerNodesResult.rows) {
-        // Skip trigger nodes from other diagrams if a specific diagram was targeted
-        if (diagramId && triggerNode.diagram_id !== diagramId) {
-          continue;
-        }
+      // Create initial node state for the trigger node
+      const nodeStateId = `ns_${uuidv4()}`
+      await client.query(
+        `INSERT INTO section0.cr08anode_states
+        (id, workflow_instance_id, node_id, status)
+        VALUES ($1, $2, $3, 'completed')`,
+        [nodeStateId, workflowInstanceId, triggerNode.node_id]
+      )
 
-        // Verify this is an external trigger node (not an internal one)
-        const isInternalTrigger = await this.isInternalTriggerNode(client, triggerNode.node_id);
-        if (isInternalTrigger) {
-          console.warn(`Skipping internal trigger node ${triggerNode.node_id} - internal triggers should be activated via /activate-trigger API`);
-          continue;
-        }
-        
-        // Initialize the trigger node state
-        const nodeStateId = `ns_${uuidv4()}`
-        
-        // Determine initial status based on trigger type
-        let initialStatus = 'completed';
-        
-        // Special case: If this is an 'approve' trigger, mark it as waiting instead
-        if (triggerNode.data.triggerEvents.includes('approve')) {
-          initialStatus = 'waiting';
-          // For approve triggers, we'll need to create approval records
-          await this.createHumanApprovals(client, nodeStateId, triggerNode.data);
-        }
-        
-        // Create the node state
-        await client.query(
-          `INSERT INTO section0.cr08anode_states
-          (id, workflow_instance_id, node_id, status, data)
-          VALUES ($1, $2, $3, $4, $5)`,
-          [nodeStateId, workflowInstanceId, triggerNode.node_id, initialStatus, JSON.stringify(triggerData)]
-        )
+      const enrichedTriggerData = {
+        eventName,
+        mappingId,
+        ...triggerData
+      };
+      // Enrich context with additional data
+      await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, enrichedTriggerData)
 
-        // Only process outgoing connections if the node is not waiting
-        if (initialStatus === 'completed') {
-          // Process outgoing connections from this trigger node
-          await this.processOutgoingConnections(client, workflowInstanceId, triggerNode.node_id, triggerData);
-        }
-      }
-
-      // Process pending nodes to continue the workflow
-      await this.processPendingNodes(client, workflowInstanceId)
+      // Process outgoing connections from this trigger node
+      await this.processOutgoingConnections(client, workflowInstanceId, triggerNode.node_id, nodeStateId)
 
       await client.query('COMMIT')
       return workflowInstanceId
@@ -202,10 +153,9 @@ class WorkflowEngine {
    * @param {object} client - Database client
    * @param {string} workflowInstanceId - Workflow instance ID
    * @param {string} nodeId - Source node ID
-   * @param {object} nodeData - Data from the source node
    * @returns {Promise<void>}
    */
-  async processOutgoingConnections(client, workflowInstanceId, nodeId, nodeData) {
+  async processOutgoingConnections(client, workflowInstanceId, nodeId, preNodeStateId) {
     // Find all connections from this node
     const connectionsResult = await client.query(
       `SELECT c.id, c.target_node_id, c.data
@@ -294,12 +244,12 @@ class WorkflowEngine {
           status = 'pending'
       }
       
-      // Create the node state
+      // Create the node state (không còn lưu data tại node_state)
       await client.query(
         `INSERT INTO section0.cr08anode_states
-        (id, workflow_instance_id, node_id, status, inputs_required, data)
-        VALUES ($1, $2, $3, $4, $5, $6)`,
-        [nodeStateId, workflowInstanceId, targetNodeId, status, inputsRequired, JSON.stringify(nodeData)]
+        (id, workflow_instance_id, node_id, status, inputs_required)
+        VALUES ($1, $2, $3, $4, $5)`,
+        [nodeStateId, workflowInstanceId, targetNodeId, status, inputsRequired]
       )
       
       // For trigger nodes with approve event, create approval records for connected human nodes
@@ -310,161 +260,36 @@ class WorkflowEngine {
       // For nodes that should execute immediately, queue them
       if (status === 'active') {
         // This would trigger immediate execution for nodes like 'send'
-        await this.executeNode(client, workflowInstanceId, nodeStateId, targetNodeId, targetNode.node_type, nodeData)
+        await this.executeNode(client, workflowInstanceId, preNodeStateId, nodeStateId, targetNodeId, targetNode.node_type)
       }
     }
-  }
-
-  /**
-   * Create approval records for human nodes
-   * @param {object} client - Database client
-   * @param {string} nodeStateId - Node state ID
-   * @param {object} triggerNodeData - Trigger node data
-   * @returns {Promise<void>}
-   */
-  async createHumanApprovals(client, nodeStateId, triggerNodeData) {
-    // First, get the trigger node's ID to find connected human nodes
-    const nodeStateResult = await client.query(
-      `SELECT ns.node_id, wi.diagram_id 
-       FROM section0.cr08anode_states ns
-       JOIN section0.cr08workflow_instances wi ON ns.workflow_instance_id = wi.id
-       WHERE ns.id = $1`,
-      [nodeStateId]
-    )
-    
-    if (nodeStateResult.rows.length === 0) return
-    
-    const triggerNodeId = nodeStateResult.rows[0].node_id
-    const diagramId = nodeStateResult.rows[0].diagram_id
-    
-    // Find connected human nodes that are source nodes to this trigger node
-    const humanNodesResult = await client.query(
-      `SELECT o.node_id, o.data
-       FROM section0.cr07Cdiagram_objects o
-       JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
-       WHERE o.diagram_id = $1 AND o.node_type = 'human' AND c.target_node_id = $2`,
-      [diagramId, triggerNodeId]
-    )
-    
-    // Process each human node and collect user IDs
-    const allUserIds = []
-    
-    for (const humanNode of humanNodesResult.rows) {
-      const nodeData = humanNode.data
-      
-      if (nodeData.humanType === 'personal') {
-        // Personal selection - directly use humanIds
-        allUserIds.push(...(nodeData.humanIds || []))
-      } else if (nodeData.humanType === 'role') {
-        // Role-based selection - need to find users with these roles
-        // This would depend on your user-role relationship structure
-        for (const roleId of (nodeData.humanRoleIds || [])) {
-          const usersResult = await client.query(
-            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
-            [roleId]
-          )
-          usersResult.rows.forEach(row => allUserIds.push(row.id))
-        }
-      }
-    }
-    
-    // If no users found from connected human nodes, check if the trigger node itself has human data
-    if (allUserIds.length === 0 && triggerNodeData.humanType) {
-      if (triggerNodeData.humanType === 'personal') {
-        allUserIds.push(...(triggerNodeData.humanIds || []))
-      } else if (triggerNodeData.humanType === 'role') {
-        for (const roleId of (triggerNodeData.humanRoleIds || [])) {
-          const usersResult = await client.query(
-            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
-            [roleId]
-          )
-          usersResult.rows.forEach(row => allUserIds.push(row.id))
-        }
-      }
-    }
-    
-    // Create approval records for each unique user
-    const uniqueUserIds = [...new Set(allUserIds)]
-    for (const userId of uniqueUserIds) {
-      await client.query(
-        `INSERT INTO section0.cr08cnode_approvals
-        (id, node_state_id, user_id, status)
-        VALUES ($1, $2, $3, 'pending')`,
-        [`na_${uuidv4()}`, nodeStateId, parseInt(userId, 10)]
-      )
-    }
-  }
-
-  /**
-   * Process pending nodes in a workflow
-   * @param {object} client - Database client
-   * @param {string} workflowInstanceId - Workflow instance ID
-   * @returns {Promise<void>}
-   */
-  async processPendingNodes(client, workflowInstanceId) {
-    // Get all active nodes that should be processed
-    const activeNodesResult = await client.query(
-      `SELECT ns.id as state_id, ns.node_id, o.node_type, ns.data
-       FROM section0.cr08anode_states ns
-       JOIN section0.cr07Cdiagram_objects o ON ns.node_id = o.node_id
-       WHERE ns.workflow_instance_id = $1 AND ns.status = 'active'`,
-      [workflowInstanceId]
-    )
-    
-    if (activeNodesResult.rows.length === 0) {
-      // Check if workflow is complete or still has waiting nodes
-      return await this.checkWorkflowCompletion(client, workflowInstanceId)
-    }
-    
-    // Process each active node
-    let moreNodesToProcess = false
-    for (const node of activeNodesResult.rows) {
-      const result = await this.executeNode(
-        client, 
-        workflowInstanceId,
-        node.state_id,
-        node.node_id, 
-        node.node_type, 
-        node.data
-      )
-      
-      if (result && result.continue) {
-        moreNodesToProcess = true
-      }
-    }
-    
-    // If new nodes were activated, process them recursively
-    if (moreNodesToProcess) {
-      await this.processPendingNodes(client, workflowInstanceId)
-    } else {
-      // Check if workflow is complete
-      await this.checkWorkflowCompletion(client, workflowInstanceId)
-    }
+    await this.checkWorkflowCompletion(client, workflowInstanceId)
   }
 
   /**
    * Execute a specific node's logic
    * @param {object} client - Database client
    * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string} preNodeStateId - Previous node state ID that triggered this execution
    * @param {string} nodeStateId - Node state ID
    * @param {string} nodeId - Node ID
    * @param {string} nodeType - Node type
-   * @param {object} nodeData - Input data for the node
    * @returns {Promise<object>} - Result of the node execution
    */
-  async executeNode(client, workflowInstanceId, nodeStateId, nodeId, nodeType, nodeData) {
+  async executeNode(client, workflowInstanceId, preNodeStateId, nodeStateId, nodeId, nodeType) {
+    const inputData = await this.getWorkflowContext(client, workflowInstanceId, preNodeStateId)
     // Execute node-specific logic based on type
     switch (nodeType) {
       case 'decision':
-        return await this.executeDecisionNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
+        return await this.executeDecisionNode(client, workflowInstanceId, nodeStateId, nodeId, inputData)
       case 'and':
-        return await this.executeAndNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
+        return await this.executeAndNode(client, workflowInstanceId, nodeStateId, nodeId, inputData)
       case 'or':
-        return await this.executeOrNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
+        return await this.executeOrNode(client, workflowInstanceId, nodeStateId, nodeId, inputData)
       case 'send':
-        return await this.executeSendNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
-      case 'trigger':
-        return await this.executeInternalTriggerNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
+        return await this.executeSendNode(client, workflowInstanceId, preNodeStateId, nodeStateId, nodeId, inputData)
+      // case 'trigger':
+      //   return await this.executeInternalTriggerNode(client, workflowInstanceId, nodeStateId, nodeId, nodeData)
       case 'end':
         // Mark the node as completed
         await client.query(
@@ -485,53 +310,6 @@ class WorkflowEngine {
         return { continue: false }
     }
   }
-
-  /**
-   * Execute an internal trigger node within an existing workflow
-   * @param {object} client - Database client
-   * @param {string} workflowInstanceId - Workflow instance ID
-   * @param {string} nodeStateId - Node state ID
-   * @param {string} nodeId - Node ID
-   * @param {object} inputData - Input data from previous node
-   * @returns {Promise<object>} - Result of the execution
-   */
-  async executeInternalTriggerNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    // Get the trigger node details
-    const nodeResult = await client.query(
-      `SELECT o.data FROM section0.cr07Cdiagram_objects o WHERE o.node_id = $1`,
-      [nodeId]
-    )
-    
-    if (nodeResult.rows.length === 0) return { continue: false }
-    
-    const nodeData = nodeResult.rows[0].data
-    const triggerEvents = nodeData.triggerEvents || []
-    
-    // Check if this is an 'approve' trigger that should wait for human input
-    if (triggerEvents.includes('approve')) {
-      // Update node state to waiting
-      await client.query(
-        `UPDATE section0.cr08anode_states SET status = 'waiting' WHERE id = $1`,
-        [nodeStateId]
-      )
-      
-      // Create approval records for humans
-      await this.createHumanApprovals(client, nodeStateId, nodeData)
-      
-      return { continue: false } // Stop processing this branch until approved
-    } 
-    
-    // For other trigger types, we can immediately mark as completed and continue
-    await client.query(
-      `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
-      [nodeStateId]
-    )
-    
-    // Process outgoing connections
-    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, inputData)
-    
-    return { continue: true }
-  }
   
   /**
    * Execute a decision node
@@ -539,7 +317,7 @@ class WorkflowEngine {
    * @param {string} workflowInstanceId - Workflow instance ID
    * @param {string} nodeStateId - Node state ID
    * @param {string} nodeId - Node ID
-   * @param {object} inputData - Input data to evaluate
+   * @param {object} inputData - Input data from previous node
    * @returns {Promise<object>} - Result of the execution
    */
   async executeDecisionNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
@@ -554,7 +332,7 @@ class WorkflowEngine {
     const nodeData = nodeResult.rows[0].data
     // Evaluate the condition
     let conditionValue = nodeData.conditionValue || '';
-    
+
     const inputValue = inputData.result !== undefined ? inputData.result : (inputData.value || '') 
     const conditionMet = inputValue == conditionValue; // Simple equality check, can be extended
     
@@ -604,13 +382,24 @@ class WorkflowEngine {
       );
     }
 
-    // Update the node state with the result
+    // Update the node state (chỉ cập nhật status)
     await client.query(
       `UPDATE section0.cr08anode_states 
-       SET status = 'completed', data = jsonb_set(data, '{result}', $1)
-       WHERE id = $2`,
-      [JSON.stringify(conditionMet), nodeStateId]
+       SET status = 'completed'
+       WHERE id = $1`,
+      [nodeStateId]
     )
+    
+    // Create decision metadata to pass along with the result
+    const decisionMetadata = {
+      conditionValue,
+      result: conditionMet,
+      conditionType: nodeData.conditionType || 'equals',
+      processedAt: new Date().toISOString(),
+    };
+    
+    // Cập nhật context của workflow instance với kết quả đầy đủ của decision node
+    await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, decisionMetadata)
     
     // Find outgoing connections based on the condition result (true/false path)
     const connectionsResult = await client.query(
@@ -621,25 +410,11 @@ class WorkflowEngine {
     )
     
     // Process outgoing connections
-    let moreNodesToProcess = false
-    
-    // Create decision metadata to pass along with the result
-    const decisionMetadata = {
-      source: 'decision',
-      conditionValue,
-      inputValue,
-      conditionMet,
-      conditionType: nodeData.conditionType || 'equals',
-      processedAt: new Date().toISOString(),
-      sourceNodeIds: sourceNodesResult.rows.map(node => node.id)
-    };
+    let moreNodesToProcess = false;
     
     for (const conn of connectionsResult.rows) {
-      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, { 
-        ...inputData, 
-        result: conditionMet,
-        decisionMetadata
-      })
+      // Pass complete decision result to downstream nodes
+      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId)
       moreNodesToProcess = true
     }
     
@@ -652,7 +427,7 @@ class WorkflowEngine {
    * @param {string} workflowInstanceId - Workflow instance ID
    * @param {string} nodeStateId - Node state ID
    * @param {string} nodeId - Node ID
-   * @param {object} inputData - Input data from the source node
+   * @param {object} inputData - Input data from previous node
    * @returns {Promise<object>} - Result of the execution
    */
   async executeAndNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
@@ -674,17 +449,23 @@ class WorkflowEngine {
     
     const updatedState = updatedStateResult.rows[0]
     
-    // Always forward the input to the next nodes
     // Check if this is the last input
     const isLastInput = updatedState.inputs_received >= updatedState.inputs_required
     
-    // Process outgoing connections
-    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
-      ...inputData,
+    // Prepare the enriched input data with AND node metadata
+    const nodeStateData = {
       checkType: 'and',
-      lastInput: isLastInput
-    })
+      lastInput: isLastInput,
+      inputReceived: updatedState.inputs_received,
+    };
     
+    // Cập nhật context với input data mới nhận, bao gồm checkType và lastInput
+    await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, nodeStateData)
+    
+    // Always forward the input to the next nodes
+    // Process outgoing connections
+    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId)
+
     // If this was the last input, mark the node as completed
     if (isLastInput) {
       await client.query(
@@ -704,7 +485,7 @@ class WorkflowEngine {
    * @param {string} workflowInstanceId - Workflow instance ID
    * @param {string} nodeStateId - Node state ID
    * @param {string} nodeId - Node ID
-   * @param {object} inputData - Input data from the source node
+   * @param {object} inputData - Input data from previous node
    * @returns {Promise<object>} - Result of the execution
    */
   async executeOrNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
@@ -725,16 +506,23 @@ class WorkflowEngine {
     )
     
     const updatedState = updatedStateResult.rows[0]
-    // Always forward the input to the next nodes
+    
     // For OR node, check if it's the last possible input
     const isLastInput = updatedState.inputs_received >= updatedState.inputs_required
     
-    // Process outgoing connections
-    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, {
-      ...inputData,
+    // Prepare the enriched input data with OR node metadata
+    const nodeStateData = {
       checkType: 'or',
-      lastInput: isLastInput
-    })
+      lastInput: isLastInput,
+      inputReceived: updatedState.inputs_received,
+    };
+    
+    // Cập nhật context với input data mới nhận, bao gồm checkType và lastInput
+    await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, nodeStateData)
+    
+    // Always forward the input to the next nodes
+    // Process outgoing connections
+    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId)
 
     // If this was the last possible input, mark the node as completed
     if (isLastInput) {
@@ -753,28 +541,34 @@ class WorkflowEngine {
    * Execute a send node
    * @param {object} client - Database client
    * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string} preNodeStateId - Previous node state ID that triggered this execution
    * @param {string} nodeStateId - Node state ID
    * @param {string} nodeId - Node ID
-   * @param {object} inputData - Input data for the notification
+   * @param {object} inputData - Input data from previous node
    * @returns {Promise<object>} - Result of the execution
    */
-  async executeSendNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    // Get workflow information for context
+  async executeSendNode(client, workflowInstanceId, preNodeStateId, nodeStateId, nodeId, inputData) {
+    // Get the node details for send configuration
+    const nodeResult = await client.query(
+      `SELECT o.data FROM section0.cr07Cdiagram_objects o WHERE o.node_id = $1`,
+      [nodeId]
+    )
+    
+    if (nodeResult.rows.length === 0) return { continue: false }
+    
+    const nodeData = nodeResult.rows[0].data
+    const sendKinds = nodeData.sendKinds || []
+
     const workflowResult = await client.query(
-      `SELECT wi.started_by, o.data, o.id as obj_id, o.diagram_id
+      `SELECT wi.started_by, o.diagram_id
        FROM section0.cr08workflow_instances wi
        JOIN section0.cr07Cdiagram_objects o ON o.node_id = $1
        WHERE wi.id = $2 AND wi.diagram_id = o.diagram_id`,
       [nodeId, workflowInstanceId]
     )
-    
+
     if (workflowResult.rows.length === 0) return { continue: false }
-    
-    const workflowInfo = workflowResult.rows[0]
-    const senderId = workflowInfo.started_by
-    const nodeData = workflowInfo.data
-    const sendNodeObjectId = workflowInfo.obj_id
-    const sendKinds = nodeData.sendKinds || []
+    const senderId = workflowResult.rows[0].started_by
     
     // Get sender name from user table
     let senderName = 'System'
@@ -795,8 +589,10 @@ class WorkflowEngine {
       `SELECT o.id, o.node_id, o.data
        FROM section0.cr07Cdiagram_objects o
        JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
-       WHERE o.diagram_id = $1 AND o.node_type = 'human' AND c.target_node_id = $2`,
-      [workflowInfo.diagram_id, nodeId]
+       WHERE o.diagram_id = (
+         SELECT diagram_id FROM section0.cr08workflow_instances WHERE id = $1
+       ) AND o.node_type = 'human' AND c.target_node_id = $2`,
+      [workflowInstanceId, nodeId]
     )
     
     // Prepare recipients based on human nodes
@@ -863,15 +659,63 @@ class WorkflowEngine {
     const receiversIds = Array.from(uniqueReceivers.keys())
     const receiversData = Array.from(uniqueReceivers.values())
 
-    // Check if the input data has event information
-    const needAction = inputData.eventName === 'approve' || inputData.eventName === 'sendapprove'
-    
-    // Prepare enriched data for notification
-    const enrichedData = {
-      ...inputData,
-      eventName: inputData.eventName || '',
-      modelName: inputData.modelName || '',
-      objectDisplayName: inputData.objectDisplayName || ''
+    // Check if previous node state is trigger node to get input data
+    const preNodeType = await client.query(
+      `SELECT o.node_type
+       FROM section0.cr07Cdiagram_objects o
+       JOIN section0.cr08anode_states ns ON o.node_id = ns.node_id
+       WHERE ns.id = $1`,
+      [preNodeStateId]
+    )
+
+    let needAction = false
+    let enrichedData = {}
+
+    if (preNodeType.rows.length > 0 && preNodeType.rows[0].node_type === 'trigger') {
+      needAction = inputData.eventName === 'sendapprove'
+      // Lấy thông tin sự kiện từ bảng cr07etriggerevent
+      const eventInfoResult = await client.query(`
+        SELECT name 
+        FROM section0.cr07etriggerevent 
+        WHERE code = $1
+      `, [inputData.eventName]).catch(() => ({ rows: [] }));
+      const eventDisplayName = eventInfoResult.rowCount > 0 ? eventInfoResult.rows[0].name : inputData.eventName;
+      // Lấy thông tin module từ bảng cr04viewmodelmapping
+      const moduleInfoResult = await client.query(`
+        SELECT displayname, modelname
+        FROM section0.cr04viewmodelmapping 
+        WHERE id = $1
+      `, [inputData.mappingId]).catch(() => ({ rows: [] }));
+      
+      const modelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].displayname : '';
+      const rawModelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].modelname : '';
+
+      const tableName = rawModelName
+        ? rawModelName.split('.').pop().toLowerCase()
+        : '';
+      // Xác định objectDisplayName từ dữ liệu
+      let objectDisplayName = '';
+      if (inputData.Code && inputData.Name) {
+        objectDisplayName = `[${inputData.Code}] ${inputData.Name}`;
+      } else if (inputData.Name) {
+        objectDisplayName = inputData.Name;
+      } else if (inputData.Code) {
+        objectDisplayName = inputData.Code;
+      } else if (inputData.Id) {
+        objectDisplayName = inputData.Id;
+      }
+
+      const title = eventDisplayName ? `Thông báo ${eventDisplayName}` : 'Thông báo mới';
+      const details = `Người gửi: ${senderName}\n${eventDisplayName || ''} ${modelName || ''}: ${objectDisplayName || ''}`;
+
+      enrichedData = {
+        ...inputData,
+        tableName: tableName || '',
+        title,
+        details,
+      }
+    } else {
+      enrichedData = { ...inputData }
     }
     
     // Send notifications based on sendKinds
@@ -891,58 +735,6 @@ class WorkflowEngine {
     return { continue: true }
   }
 
-  /**
-   * Check if a workflow instance is complete
-   * @param {object} client - Database client
-   * @param {string} workflowInstanceId - Workflow instance ID
-   * @returns {Promise<boolean>} - Whether the workflow is complete
-   */
-  async checkWorkflowCompletion(client, workflowInstanceId) {
-    // Check if there are any non-completed node states
-    const pendingNodesResult = await client.query(
-      `SELECT COUNT(*) as count
-       FROM section0.cr08anode_states
-       WHERE workflow_instance_id = $1
-       AND status NOT IN ('completed', 'error')`,
-      [workflowInstanceId]
-    )
-    
-    const pendingCount = parseInt(pendingNodesResult.rows[0].count)
-    
-    if (pendingCount === 0) {
-      // All nodes are completed or in error, mark workflow as complete
-      await client.query(
-        `UPDATE section0.cr08workflow_instances
-         SET status = 'completed', completed_at = now()
-         WHERE id = $1`,
-        [workflowInstanceId]
-      )
-      return true
-    }
-    
-    // Check if there are any active nodes (excluding waiting nodes)
-    const activeNodesResult = await client.query(
-      `SELECT COUNT(*) as count
-       FROM section0.cr08anode_states
-       WHERE workflow_instance_id = $1 AND status = 'active'`,
-      [workflowInstanceId]
-    )
-    
-    const activeCount = parseInt(activeNodesResult.rows[0].count)
-    
-    if (activeCount === 0 && pendingCount > 0) {
-      // Only waiting nodes remain, workflow is paused
-      await client.query(
-        `UPDATE section0.cr08workflow_instances
-         SET status = 'waiting'
-         WHERE id = $1 AND status = 'active'`,
-        [workflowInstanceId]
-      )
-    }
-    
-    return false
-  }
-
   // Unified notification method following processMessageByType pattern
   async sendNotificationByType(client, sendType, senderId, senderName, needAction, data, receiversIds, receiversData) {
     // Process based on notification type
@@ -952,9 +744,9 @@ class WorkflowEngine {
         if (!receiverId) continue;
         
         // Prepare notification details
-        const title = data.eventName ? `Thông báo ${data.eventName}` : 'Thông báo mới';
-        const details = `Người gửi: ${senderName}\n${data.eventName || ''} ${data.modelName || ''}: ${data.objectDisplayName || ''}`;
-        
+        const title = data.title || "Thông báo mới";
+        const details = data.details || "Người gửi: " + senderName;
+
         // Insert notification into database
         await client.query(
           `INSERT INTO section0.cr01notification (
@@ -965,11 +757,11 @@ class WorkflowEngine {
           )`,
           [
             false, // isread
-            senderId.toString(), // sender
-            receiverId.toString(), // receiver
+            parseInt(senderId.toString(), 10), // sender
+            parseInt(receiverId.toString(), 10), // receiver
             needAction === true, // isaction
             data.Id || null, // relatedid
-            data.datatable || null, // datatable
+            data.tableName || null, // datatable
             1, // active
             0, // createuid
             0, // writeuid
@@ -994,9 +786,9 @@ class WorkflowEngine {
       }
       
       // Prepare email content
-      const subject = data.eventName ? `Thông báo ${data.eventName}` : 'Thông báo mới';
-      const body = `Người gửi: ${senderName}\n${data.eventName || ''} ${data.modelName || ''}: ${data.objectDisplayName || ''}`;
-      
+      const subject = data.title || "Thông báo mới";
+      const body = data.details || `Người gửi: ${senderName}`;
+
       // Track how many email sending tasks we've started
       let emailTasksStarted = 0;
       
@@ -1112,6 +904,129 @@ class WorkflowEngine {
       return false;
     }
   }
+
+  /**
+   * Get context for a workflow instance or a specific node
+   * @param {object} client - Database client
+   * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string|null} nodeStateId - Optional node state ID to get specific node context
+   * @returns {Promise<object>} - The context data
+   */
+  async getWorkflowContext(client, workflowInstanceId, nodeStateId = null) {
+    console.log(`==== DEBUG getWorkflowContext ====`);
+    console.log(`workflowInstanceId: ${workflowInstanceId}, nodeStateId: ${nodeStateId}`);
+    
+    const result = await client.query(
+      `SELECT context FROM section0.cr08workflow_instances WHERE id = $1`,
+      [workflowInstanceId]
+    )
+    
+    if (result.rows.length === 0) {
+      console.error(`Workflow instance not found: ${workflowInstanceId}`);
+      throw new Error(`Workflow instance not found: ${workflowInstanceId}`);
+    }
+    
+    const context = result.rows[0].context || {};
+    console.log(`Full context:`, JSON.stringify(context, null, 2));
+    
+    if (nodeStateId) {
+      const nodeContext = (context.nodes || {})[nodeStateId] || {};
+      console.log(`Node context for ${nodeStateId}:`, JSON.stringify(nodeContext, null, 2));
+      return nodeContext;
+    }
+    
+    console.log(`Returning full context`);
+    console.log(`==== END DEBUG getWorkflowContext ====`);
+    return context;
+  }
+  
+  /**
+   * Update context for a workflow instance
+   * @param {object} client - Database client
+   * @param {string} workflowInstanceId - Workflow instance ID
+   * @param {string|null} nodeStateId - Optional node state ID if updating node-specific context
+   * @param {object} data - Data to merge with the existing context
+   * @returns {Promise<void>}
+   */
+  async updateWorkflowContext(client, workflowInstanceId, nodeStateId = null, data = {}) {
+    if (nodeStateId) {
+      // Tạo JSON path dưới dạng chuỗi
+      const jsonPath = ['nodes', nodeStateId];
+      
+      // Update node-specific context
+      await client.query(
+        `UPDATE section0.cr08workflow_instances
+         SET context = jsonb_set(
+           jsonb_set(context, '{nodes}', COALESCE(context->'nodes', '{}'::jsonb), true),
+           $1, 
+           coalesce(context#>$1, '{}'::jsonb) || $2::jsonb,
+           true
+         )
+         WHERE id = $3`,
+        [jsonPath, JSON.stringify(data), workflowInstanceId]
+      )
+    } else {
+      // Update root context
+      await client.query(
+        `UPDATE section0.cr08workflow_instances
+         SET context = context || $1::jsonb
+         WHERE id = $2`,
+        [JSON.stringify(data), workflowInstanceId]
+      )
+    }
+  }
+
+  /**
+   * Check if a workflow instance is complete
+   * @param {object} client - Database client
+   * @param {string} workflowInstanceId - Workflow instance ID
+   * @returns {Promise<boolean>} - Whether the workflow is complete
+   */
+  async checkWorkflowCompletion(client, workflowInstanceId) {
+    // Check if there are any non-completed node states
+    const pendingNodesResult = await client.query(
+      `SELECT COUNT(*) as count
+       FROM section0.cr08anode_states
+       WHERE workflow_instance_id = $1
+       AND status NOT IN ('completed', 'error')`,
+      [workflowInstanceId]
+    )
+    
+    const pendingCount = parseInt(pendingNodesResult.rows[0].count)
+    
+    if (pendingCount === 0) {
+      // All nodes are completed or in error, mark workflow as complete
+      await client.query(
+        `UPDATE section0.cr08workflow_instances
+         SET status = 'completed', completed_at = now()
+         WHERE id = $1`,
+        [workflowInstanceId]
+      )
+      return true
+    }
+    
+    // Check if there are any active nodes (excluding waiting nodes)
+    const activeNodesResult = await client.query(
+      `SELECT COUNT(*) as count
+       FROM section0.cr08anode_states
+       WHERE workflow_instance_id = $1 AND status = 'active'`,
+      [workflowInstanceId]
+    )
+    
+    const activeCount = parseInt(activeNodesResult.rows[0].count)
+    
+    if (activeCount === 0 && pendingCount > 0) {
+      // Only waiting nodes remain, workflow is paused
+      await client.query(
+        `UPDATE section0.cr08workflow_instances
+         SET status = 'waiting'
+         WHERE id = $1 AND status = 'active'`,
+        [workflowInstanceId]
+      )
+    }
+    
+    return false
+  }
   
   // Methods for user role/department management - these would integrate with your system
   
@@ -1143,6 +1058,84 @@ class WorkflowEngine {
   }
 
   /**
+   * Create approval records for human nodes
+   * @param {object} client - Database client
+   * @param {string} nodeStateId - Node state ID
+   * @param {object} triggerNodeData - Trigger node data
+   * @returns {Promise<void>}
+   */
+  async createHumanApprovals(client, nodeStateId, triggerNodeData) {
+    // First, get the trigger node's ID to find connected human nodes
+    const nodeStateResult = await client.query(
+      `SELECT ns.node_id, wi.diagram_id 
+       FROM section0.cr08anode_states ns
+       JOIN section0.cr08workflow_instances wi ON ns.workflow_instance_id = wi.id
+       WHERE ns.id = $1`,
+      [nodeStateId]
+    )
+    
+    if (nodeStateResult.rows.length === 0) return
+    
+    const triggerNodeId = nodeStateResult.rows[0].node_id
+    const diagramId = nodeStateResult.rows[0].diagram_id
+    
+    // Find connected human nodes that are source nodes to this trigger node
+    const humanNodesResult = await client.query(
+      `SELECT o.node_id, o.data
+       FROM section0.cr07Cdiagram_objects o
+       JOIN section0.cr07Ddiagram_connections c ON o.node_id = c.source_node_id
+       WHERE o.diagram_id = $1 AND o.node_type = 'human' AND c.target_node_id = $2`,
+      [diagramId, triggerNodeId]
+    )
+    
+    // Process each human node and collect user IDs
+    const allUserIds = []
+    
+    for (const humanNode of humanNodesResult.rows) {
+      const nodeData = humanNode.data
+      
+      if (nodeData.humanType === 'personal') {
+        // Personal selection - directly use humanIds
+        allUserIds.push(...(nodeData.humanIds || []))
+      } else if (nodeData.humanType === 'role') {
+        for (const roleId of (nodeData.humanRoleIds || [])) {
+          const usersResult = await client.query(
+            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
+            [roleId]
+          )
+          usersResult.rows.forEach(row => allUserIds.push(row.id))
+        }
+      }
+    }
+    
+    // If no users found from connected human nodes, check if the trigger node itself has human data
+    if (allUserIds.length === 0 && triggerNodeData.humanType) {
+      if (triggerNodeData.humanType === 'personal') {
+        allUserIds.push(...(triggerNodeData.humanIds || []))
+      } else if (triggerNodeData.humanType === 'role') {
+        for (const roleId of (triggerNodeData.humanRoleIds || [])) {
+          const usersResult = await client.query(
+            `SELECT id FROM section9nhansu.ns01taikhoannguoidung WHERE recordidchucdanh = $1`,
+            [roleId]
+          )
+          usersResult.rows.forEach(row => allUserIds.push(row.id))
+        }
+      }
+    }
+    
+    // Create approval records for each unique user
+    const uniqueUserIds = [...new Set(allUserIds)]
+    for (const userId of uniqueUserIds) {
+      await client.query(
+        `INSERT INTO section0.cr08cnode_approvals
+        (id, node_state_id, user_id, status)
+        VALUES ($1, $2, $3, 'pending')`,
+        [`na_${uuidv4()}`, nodeStateId, parseInt(userId, 10)]
+      )
+    }
+  }
+
+  /**
    * Process a human approval
    * @param {string} nodeStateId - Node state ID
    * @param {string} userId - User ID performing the approval
@@ -1150,7 +1143,7 @@ class WorkflowEngine {
    * @param {string} comment - Optional comment
    * @returns {Promise<boolean>} - Success status
    */
-  async processHumanApproval(nodeStateId, userId, approved, comment) {
+  async processHumanApproval(mappingId, objectId, requesterId, userId, approved, comment) {
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
@@ -1234,25 +1227,53 @@ class WorkflowEngine {
       }
       
       if (nodeCompleted) {
-        // Update node state
+        // Update node state (chỉ cập nhật status)
         await client.query(
           `UPDATE section0.cr08anode_states
-           SET status = 'completed', data = jsonb_set(data, '{approvalResult}', $1)
-           WHERE id = $2`,
-          [JSON.stringify(approvalResult), nodeStateId]
+           SET status = 'completed'
+           WHERE id = $1`,
+          [nodeStateId]
         )
         
-        // Process outgoing connections
+        // Cập nhật context của workflow instance với kết quả phê duyệt đầy đủ
         const workflowInstanceId = nodeState.workflow_instance_id
+        
+        // Tạo approval metadata đầy đủ
+        const approvalMetadata = {
+          approvalResult,
+          approvedCount,
+          rejectedCount,
+          totalCount,
+          approvalMode,
+          processedAt: new Date().toISOString(),
+          comment: comment || null,
+          userId: parseInt(userId, 10)
+        };
+        
+        await client.query(
+          `UPDATE section0.cr08workflow_instances
+           SET context = jsonb_set(
+             context, 
+             '{nodes, $1}', 
+             coalesce(context->'nodes'->'$1', '{}'::jsonb) || $2::jsonb,
+             true
+           )
+           WHERE id = $3`,
+          [nodeStateId, JSON.stringify(approvalMetadata), workflowInstanceId]
+        )
+        
+        // Forward the enriched approval data to downstream nodes
         await this.processOutgoingConnections(
           client, 
           workflowInstanceId, 
           nodeState.node_id, 
-          { approvalResult }
+          { 
+            result: approvalResult,
+            approvalResult,
+            approvalMetadata,
+            value: approvalResult ? "true" : "false"
+          }
         )
-        
-        // Process any pending nodes that might now be ready
-        await this.processPendingNodes(client, workflowInstanceId)
       }
       
       await client.query('COMMIT')
