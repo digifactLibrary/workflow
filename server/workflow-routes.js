@@ -52,19 +52,21 @@ module.exports = function(app, db) {
     try {
       const { mappingId, objectId, requesterId, userId, approved, comment } = req.body
       
-      if (!objectId) {
-        return res.status(400).json({ error: 'objectId is required' })
+      if (!objectId || !mappingId) {
+        return res.status(400).json({ error: 'Object and mapping are required' })
       }
       
-      if (!userId) {
+      if (!userId || !requesterId) {
         return res.status(401).json({ error: 'Authentication required' })
       }
       
       // Process the approval
       await workflowEngine.processHumanApproval(
-        nodeStateId, 
-        userId, 
-        !!approved, 
+        mappingId,
+        objectId,
+        requesterId,
+        userId,
+        !!approved,
         comment
       )
       

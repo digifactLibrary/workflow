@@ -321,60 +321,67 @@ class WorkflowEngine {
    * @returns {Promise<object>} - Result of the execution
    */
   async executeDecisionNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    // Get the node details to access the condition
+    console.log("==== DEBUG executeDecisionNode START ====");
+    console.log("workflowInstanceId:", workflowInstanceId);
+    console.log("nodeStateId:", nodeStateId);
+    console.log("nodeId:", nodeId);
+    console.log("inputData:", JSON.stringify(inputData, null, 2));
+
+    // Get node details
     const nodeResult = await client.query(
       `SELECT o.data FROM section0.cr07Cdiagram_objects o WHERE o.node_id = $1`,
       [nodeId]
-    )
-    
-    if (nodeResult.rows.length === 0) return { continue: false }
-    
-    const nodeData = nodeResult.rows[0].data
-    // Evaluate the condition
-    let conditionValue = nodeData.conditionValue || '';
+    );
 
-    const inputValue = inputData.result !== undefined ? inputData.result : (inputData.value || '') 
-    const conditionMet = inputValue == conditionValue; // Simple equality check, can be extended
-    
-    // Check if we should process this input based on AND/OR logic from previous nodes
+    if (nodeResult.rows.length === 0) {
+      console.warn(`Node not found for nodeId=${nodeId}`);
+      console.log("==== DEBUG executeDecisionNode END ====");
+      return { continue: false };
+    }
+
+    const nodeData = nodeResult.rows[0].data;
+    let conditionValue = nodeData.conditionValue || "";
+    const inputValue = inputData.result !== undefined ? inputData.result : (inputData.value || "");
+    const conditionMet = inputValue == conditionValue;
+
+    console.log("Node data:", JSON.stringify(nodeData, null, 2));
+    console.log("Condition value from node:", conditionValue);
+    console.log("Input value:", inputValue);
+    console.log("Condition met?", conditionMet);
+
+    // Check AND/OR logic
     let shouldProcess = true;
-    
     if (inputData.checkType) {
       if (conditionMet) {
-        // For true condition:
-        // - If from an AND node, only process if it's the last input (all inputs satisfied)
-        // - If from an OR node, always process (any input satisfies)
-        if (inputData.checkType === 'and' && !inputData.lastInput) {
+        if (inputData.checkType === "and" && !inputData.lastInput) {
           shouldProcess = false;
         }
       } else {
-        // For false condition:
-        // - If from an OR node, only process if it's the last input (all inputs failed)
-        // - If from an AND node, always process (any input failing means condition fails)
-        if (inputData.checkType === 'or' && !inputData.lastInput) {
+        if (inputData.checkType === "or" && !inputData.lastInput) {
           shouldProcess = false;
         }
       }
     }
-    
-    // If we should not process yet, just save the state and return
+    console.log("checkType:", inputData.checkType, "lastInput:", inputData.lastInput, "→ shouldProcess:", shouldProcess);
+
     if (!shouldProcess) {
-      return { continue: false }
+      console.log("Returning early, not processing yet.");
+      console.log("==== DEBUG executeDecisionNode END ====");
+      return { continue: false };
     }
 
-    // Find all active source nodes that connect to this decision node and mark them as completed
-    // This ensures we don't re-process inputs once a decision has been made
+    // Mark active source nodes as completed
     const sourceNodesResult = await client.query(
       `SELECT ns.id
-       FROM section0.cr08anode_states ns
-       JOIN section0.cr07Ddiagram_connections c ON ns.node_id = c.source_node_id
-       WHERE c.target_node_id = $1
-       AND ns.workflow_instance_id = $2
-       AND ns.status = 'active'`,
+      FROM section0.cr08anode_states ns
+      JOIN section0.cr07Ddiagram_connections c ON ns.node_id = c.source_node_id
+      WHERE c.target_node_id = $1
+        AND ns.workflow_instance_id = $2
+        AND ns.status = 'active'`,
       [nodeId, workflowInstanceId]
     );
-    
-    // Mark all active source nodes as completed
+    console.log("Active source nodes to mark completed:", sourceNodesResult.rows.map(r => r.id));
+
     for (const sourceNode of sourceNodesResult.rows) {
       await client.query(
         `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
@@ -382,44 +389,53 @@ class WorkflowEngine {
       );
     }
 
-    // Update the node state (chỉ cập nhật status)
+    // Update current node state
     await client.query(
       `UPDATE section0.cr08anode_states 
-       SET status = 'completed'
-       WHERE id = $1`,
+      SET status = 'completed'
+      WHERE id = $1`,
       [nodeStateId]
-    )
-    
-    // Create decision metadata to pass along with the result
+    );
+    console.log(`Node state ${nodeStateId} marked as completed.`);
+
+    // Decision metadata
     const decisionMetadata = {
       conditionValue,
       result: conditionMet,
-      conditionType: nodeData.conditionType || 'equals',
+      conditionType: nodeData.conditionType || "equals",
       processedAt: new Date().toISOString(),
     };
-    
-    // Cập nhật context của workflow instance với kết quả đầy đủ của decision node
-    await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, decisionMetadata)
-    
-    // Find outgoing connections based on the condition result (true/false path)
+    console.log("Decision metadata:", JSON.stringify(decisionMetadata, null, 2));
+
+    await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, decisionMetadata);
+
+    // Find outgoing connections
     const connectionsResult = await client.query(
       `SELECT c.id, c.target_node_id, c.data
-       FROM section0.cr07Ddiagram_connections c
-       WHERE c.source_node_id = $1 AND c.data->>'kind' = $2`,
-      [nodeId, conditionMet ? 'true' : 'false']
-    )
-    
+      FROM section0.cr07Ddiagram_connections c
+      WHERE c.source_node_id = $1 AND c.data->>'kind' = $2`,
+      [nodeId, conditionMet ? "true" : "false"]
+    );
+
+    console.log("Outgoing connections:", connectionsResult.rows.map(r => ({
+      connectionId: r.id,
+      targetNodeId: r.target_node_id,
+      data: r.data
+    })));
+
     // Process outgoing connections
     let moreNodesToProcess = false;
-    
     for (const conn of connectionsResult.rows) {
-      // Pass complete decision result to downstream nodes
-      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId)
-      moreNodesToProcess = true
+      console.log(`Processing outgoing connection ${conn.id} → targetNodeId=${conn.target_node_id}`);
+      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId);
+      moreNodesToProcess = true;
     }
-    
-    return { continue: moreNodesToProcess }
+
+    console.log("Will continue?", moreNodesToProcess);
+    console.log("==== DEBUG executeDecisionNode END ====");
+    return { continue: moreNodesToProcess };
   }
+
 
   /**
    * Execute an AND node
@@ -457,6 +473,7 @@ class WorkflowEngine {
       checkType: 'and',
       lastInput: isLastInput,
       inputReceived: updatedState.inputs_received,
+      result: inputData.result !== undefined ? inputData.result : (inputData.value || null),
     };
     
     // Cập nhật context với input data mới nhận, bao gồm checkType và lastInput
@@ -515,6 +532,7 @@ class WorkflowEngine {
       checkType: 'or',
       lastInput: isLastInput,
       inputReceived: updatedState.inputs_received,
+      result: inputData.result !== undefined ? inputData.result : (inputData.value || null),
     };
     
     // Cập nhật context với input data mới nhận, bao gồm checkType và lastInput
@@ -913,30 +931,22 @@ class WorkflowEngine {
    * @returns {Promise<object>} - The context data
    */
   async getWorkflowContext(client, workflowInstanceId, nodeStateId = null) {
-    console.log(`==== DEBUG getWorkflowContext ====`);
-    console.log(`workflowInstanceId: ${workflowInstanceId}, nodeStateId: ${nodeStateId}`);
-    
     const result = await client.query(
       `SELECT context FROM section0.cr08workflow_instances WHERE id = $1`,
       [workflowInstanceId]
     )
     
     if (result.rows.length === 0) {
-      console.error(`Workflow instance not found: ${workflowInstanceId}`);
       throw new Error(`Workflow instance not found: ${workflowInstanceId}`);
     }
     
     const context = result.rows[0].context || {};
-    console.log(`Full context:`, JSON.stringify(context, null, 2));
     
     if (nodeStateId) {
       const nodeContext = (context.nodes || {})[nodeStateId] || {};
-      console.log(`Node context for ${nodeStateId}:`, JSON.stringify(nodeContext, null, 2));
       return nodeContext;
     }
     
-    console.log(`Returning full context`);
-    console.log(`==== END DEBUG getWorkflowContext ====`);
     return context;
   }
   
@@ -1145,8 +1155,46 @@ class WorkflowEngine {
    */
   async processHumanApproval(mappingId, objectId, requesterId, userId, approved, comment) {
     const client = await this.db.connect()
+
+    const mappingIdInt = parseInt(mappingId, 10);
+    const objectIdInt = parseInt(objectId, 10);
+    const requesterIdInt = parseInt(requesterId, 10);
+    const userIdInt = parseInt(userId, 10);
+
     try {
       await client.query('BEGIN')
+
+      const workflowInstanceResult = await client.query(
+        `SELECT wi.id AS workflow_instance_id
+          FROM section0.cr08workflow_instances wi
+          WHERE (wi.context->>'startMappingId')::int = $1
+            AND (wi.context->>'startObjectId')::int = $2
+            AND (wi.status = 'active' OR wi.status = 'waiting')
+            AND wi.started_by = $3
+          ORDER BY wi.started_at DESC
+          LIMIT 1`,
+        [mappingIdInt, objectIdInt, requesterIdInt]
+      );
+      if (workflowInstanceResult.rows.length === 0) {
+        throw new Error('Active workflow instance not found for the given mapping and object')
+      }
+      const workflowInstanceId = workflowInstanceResult.rows[0].workflow_instance_id
+      // Get the active node state for this workflow instance that has pending approvals for this user
+      const nodeStateResult = await client.query(
+        `SELECT ns.id, ns.node_id, ns.inputs_required
+          FROM section0.cr08anode_states ns
+          JOIN section0.cr08cnode_approvals na ON na.node_state_id = ns.id
+          WHERE ns.workflow_instance_id = $1
+            AND ns.status = 'waiting'
+            AND na.user_id = $2
+            AND na.status = 'pending'
+          LIMIT 1`,
+        [workflowInstanceId, userIdInt]
+      )
+      if (nodeStateResult.rows.length === 0) {
+        throw new Error('No pending approval found for this user in the active workflow instance')
+      }
+      const nodeState = nodeStateResult.rows[0]
       
       // Update the approval record
       const updateResult = await client.query(
@@ -1154,77 +1202,92 @@ class WorkflowEngine {
          SET status = $1, comment = $2, updated_at = now()
          WHERE node_state_id = $3 AND user_id = $4
          RETURNING id`,
-        [approved ? 'approved' : 'rejected', comment || null, nodeStateId, parseInt(userId, 10)]
+        [approved ? 'approved' : 'rejected', comment || null, nodeState.id, userIdInt]
       )
       
       if (updateResult.rows.length === 0) {
         throw new Error('Approval record not found')
       }
       
-      // Get the node state to check approval mode
-      const nodeStateResult = await client.query(
-        `SELECT ns.id, ns.workflow_instance_id, ns.node_id, ns.inputs_required
-         FROM section0.cr08anode_states ns
-         WHERE ns.id = $1`,
-        [nodeStateId]
-      )
-      
-      if (nodeStateResult.rows.length === 0) {
-        throw new Error('Node state not found')
-      }
-      
-      const nodeState = nodeStateResult.rows[0]
-      
       // Get the node details to check approval mode
-      const nodeResult = await client.query(
-        `SELECT o.data
+      const nodeInfoResult = await client.query(
+        `SELECT 
+          o.data->>'approvalMode' AS approval_mode,
+          COUNT(*) FILTER (WHERE a.status = 'approved') AS approved_count,
+          COUNT(*) FILTER (WHERE a.status = 'rejected') AS rejected_count,
+          COUNT(*) AS total_count
          FROM section0.cr07Cdiagram_objects o
-         WHERE o.node_id = $1`,
-        [nodeState.node_id]
-      )
-      
-      const nodeData = nodeResult.rows[0].data
-      const approvalMode = nodeData.approvalMode || 'any' // Default to any
-      
-      // Check current approval status
-      const approvalsResult = await client.query(
-        `SELECT status FROM section0.cr08cnode_approvals
-         WHERE node_state_id = $1`,
-        [nodeStateId]
-      )
-      
-      const approvals = approvalsResult.rows
-      const approvedCount = approvals.filter(a => a.status === 'approved').length
-      const rejectedCount = approvals.filter(a => a.status === 'rejected').length
-      const totalCount = approvals.length
-      
-      let nodeCompleted = false
-      let approvalResult = null
-      
+         JOIN section0.cr08cnode_approvals a ON a.node_state_id = $1
+         WHERE o.node_id = $2
+         GROUP BY o.data`,
+        [nodeState.id, nodeState.node_id]
+      );
+
+      const { approval_mode, approved_count, rejected_count, total_count } = nodeInfoResult.rows[0];
+      const approvalMode = approval_mode || 'any';
+
+      let nodeCompleted = false;
+      let approvalResult = null;
+
       // Determine if the node is complete based on approval mode
       if (approvalMode === 'all') {
         // All approvals required
-        if (rejectedCount > 0) {
+        if (rejected_count > 0) {
           // Any rejection means the node fails
-          nodeCompleted = true
-          approvalResult = false
-        } else if (approvedCount === totalCount) {
+          nodeCompleted = true;
+          approvalResult = false;
+        } else if (approved_count === total_count) {
           // All approved
-          nodeCompleted = true
-          approvalResult = true
+          nodeCompleted = true;
+          approvalResult = true;
+        } else {
+          console.log("Condition not met yet → Node still waiting");
         }
       } else {
         // Any approval is sufficient
-        if (approvedCount > 0) {
+        if (approved_count > 0) {
           // Any approval means the node passes
-          nodeCompleted = true
-          approvalResult = true
-        } else if (rejectedCount === totalCount) {
+          nodeCompleted = true;
+          approvalResult = true;
+        } else if (rejected_count === total_count) {
           // All rejected
-          nodeCompleted = true
-          approvalResult = false
+          nodeCompleted = true;
+          approvalResult = false;
+        } else {
+          console.log("Condition not met yet → Node still waiting");
         }
       }
+
+      // Lấy context hiện tại của node
+      const nodeContext = await this.getWorkflowContext(client, workflowInstanceId, nodeState.id);
+
+      // Lấy logs cũ (nếu có)
+      const existingLogs = nodeContext.logs || [];
+
+      // Tạo log mới
+      const newLogEntry = {
+        result: approvalResult ? 'approved' : 'rejected',
+        approverId: userIdInt,
+        comment: comment || null,
+        processedAt: new Date().toISOString()
+      };
+
+      var result = approvalResult ? 'approved' : 'rejected';
+      if (approvalResult === null) {
+        result = 'pending';
+      }
+      // Build approvalMetadata
+      const approvalMetadata = {
+        result: result,
+        approved_count,
+        rejected_count,
+        total_count,
+        approvalMode,
+        logs: [...existingLogs, newLogEntry] // append thêm
+      };
+
+      // Update context (hàm updateWorkflowContext không cần đổi)
+      await this.updateWorkflowContext(client, workflowInstanceId, nodeState.id, approvalMetadata);
       
       if (nodeCompleted) {
         // Update node state (chỉ cập nhật status)
@@ -1232,34 +1295,7 @@ class WorkflowEngine {
           `UPDATE section0.cr08anode_states
            SET status = 'completed'
            WHERE id = $1`,
-          [nodeStateId]
-        )
-        
-        // Cập nhật context của workflow instance với kết quả phê duyệt đầy đủ
-        const workflowInstanceId = nodeState.workflow_instance_id
-        
-        // Tạo approval metadata đầy đủ
-        const approvalMetadata = {
-          approvalResult,
-          approvedCount,
-          rejectedCount,
-          totalCount,
-          approvalMode,
-          processedAt: new Date().toISOString(),
-          comment: comment || null,
-          userId: parseInt(userId, 10)
-        };
-        
-        await client.query(
-          `UPDATE section0.cr08workflow_instances
-           SET context = jsonb_set(
-             context, 
-             '{nodes, $1}', 
-             coalesce(context->'nodes'->'$1', '{}'::jsonb) || $2::jsonb,
-             true
-           )
-           WHERE id = $3`,
-          [nodeStateId, JSON.stringify(approvalMetadata), workflowInstanceId]
+          [nodeState.id]
         )
         
         // Forward the enriched approval data to downstream nodes
@@ -1267,12 +1303,7 @@ class WorkflowEngine {
           client, 
           workflowInstanceId, 
           nodeState.node_id, 
-          { 
-            result: approvalResult,
-            approvalResult,
-            approvalMetadata,
-            value: approvalResult ? "true" : "false"
-          }
+          nodeState.id
         )
       }
       
