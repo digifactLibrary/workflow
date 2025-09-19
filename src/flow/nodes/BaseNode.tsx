@@ -6,7 +6,7 @@ import { cn } from '../../lib/utils'
 
 type BaseProps = {
   id: string
-  data: { label: string; color?: string }
+  data: { label: string; color?: string; isReadOnly?: boolean }
   selected?: boolean
   className?: string
   children?: React.ReactNode
@@ -20,26 +20,30 @@ export const BaseNode = memo(({ id, data, selected, className, children, hideHan
   const { deleteElements, addNodes, getNode } = useReactFlow()
   // Default: allow both start/end on all sides
   const p = ports ?? { top: 'both', right: 'both', bottom: 'both', left: 'both' }
+  const isReadOnly = data.isReadOnly || false
+  
   return (
     <div className={cn(frameless ? 'relative' : 'relative rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
-      <NodeToolbar isVisible={selected} position={Position.Top} className="gap-1 p-1">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            const n = getNode(id)
-            if (!n) return
-            const offset = 40
-            addNodes({ ...n, id: `${id}-copy-${Math.round(Math.random()*1000)}`, position: { x: n.position.x + offset, y: n.position.y + offset } })
-          }}
-        >
-          <Copy className="h-4 w-4" />
-        </Button>
-        <Button size="sm" variant="destructive" onClick={() => deleteElements({ nodes: [{ id }] })}>
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </NodeToolbar>
-      {!hideResizer && (
+      {!isReadOnly && (
+        <NodeToolbar isVisible={selected} position={Position.Top} className="gap-1 p-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const n = getNode(id)
+              if (!n) return
+              const offset = 40
+              addNodes({ ...n, id: `${id}-copy-${Math.round(Math.random()*1000)}`, position: { x: n.position.x + offset, y: n.position.y + offset } })
+            }}
+          >
+            <Copy className="h-4 w-4" />
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => deleteElements({ nodes: [{ id }] })}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </NodeToolbar>
+      )}
+      {!hideResizer && !isReadOnly && (
         <NodeResizer isVisible={selected} minWidth={120} minHeight={48} color="#94a3b8" />
       )}
       {!hideHandles && (
