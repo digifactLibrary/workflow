@@ -180,87 +180,104 @@ class WorkflowEngine {
       
       const targetNode = targetNodeResult.rows[0]
       
-      // Create node state based on node type
-      const nodeStateId = `ns_${uuidv4()}`
-      let status = 'pending'
-      let inputsRequired = 0
-      
-      // Set specific behavior based on node type
-      switch (targetNode.node_type) {
-        case 'and':
-          // Count the number of incoming connections for AND node
-          const andInputsResult = await client.query(
-            `SELECT COUNT(*) as count
-             FROM section0.cr07Ddiagram_connections c
-             WHERE c.target_node_id = $1`,
-            [targetNodeId]
-          )
-          inputsRequired = parseInt(andInputsResult.rows[0].count)
-          // Set AND nodes to active so they execute immediately
-          status = 'active'
-          break
-          
-        case 'or':
-          // For OR nodes, we'll set required inputs to 1
-          inputsRequired = 1
-          // Set OR nodes to active so they execute immediately
-          status = 'active'
-          break
-          
-        case 'trigger':
-          // Trigger nodes are waiting for user interaction
-          status = 'waiting'
-          
-          if (targetNode.data.triggerEvents.includes('approve')) {
-            // Check if we need approvals from all users or just one
-            const approvalMode = targetNode.data.approvalMode || 'any' // Default to any
-            
-            // If all approvals required, count how many
-            if (approvalMode === 'all') {
-              if (targetNode.data.humanType === 'personal') {
-                inputsRequired = (targetNode.data.humanIds || []).length
-              } else if (targetNode.data.humanType === 'role') {
-                inputsRequired = await this.getNumberOfUsersInRoles(client, targetNode.data.humanRoleIds || [])
-              }
-            } else {
-              // Any approval is enough
-              inputsRequired = 1
-            }
-          }
-          break
-          
-        case 'decision':
-          // Decision nodes execute immediately
-          status = 'active'
-          break
-          
-        case 'send':
-          // Send nodes execute immediately
-          status = 'active'
-          break
-          
-        default:
-          // Other node types are pending by default
-          status = 'pending'
-      }
-      
-      // Create the node state (không còn lưu data tại node_state)
-      await client.query(
-        `INSERT INTO section0.cr08anode_states
-        (id, workflow_instance_id, node_id, status, inputs_required)
-        VALUES ($1, $2, $3, $4, $5)`,
-        [nodeStateId, workflowInstanceId, targetNodeId, status, inputsRequired]
+      const existingNodeStateResult = await client.query(
+        `SELECT id, status, inputs_required, inputs_received 
+         FROM section0.cr08anode_states
+         WHERE workflow_instance_id = $1 AND node_id = $2`,
+        [workflowInstanceId, targetNodeId]
       )
       
-      // For trigger nodes with approve event, create approval records for connected human nodes
-      if (targetNode.node_type === 'trigger' && targetNode.data.triggerEvents.includes('approve')) {
-        await this.createHumanApprovals(client, nodeStateId, targetNode.data)
+      let nodeStateId
+      let status = 'pending'
+      let inputsRequired = 0
+      let isNewState = false
+
+      if (existingNodeStateResult.rows.length > 0) {
+        nodeStateId = existingNodeStateResult.rows[0].id
+        status = existingNodeStateResult.rows[0].status
+        if (status === 'active')
+          await this.executeNode(client, workflowInstanceId, preNodeStateId, nodeStateId, targetNodeId, targetNode.node_type)
       }
-      
-      // For nodes that should execute immediately, queue them
-      if (status === 'active') {
-        // This would trigger immediate execution for nodes like 'send'
-        await this.executeNode(client, workflowInstanceId, preNodeStateId, nodeStateId, targetNodeId, targetNode.node_type)
+      else {
+        nodeStateId = `ns_${uuidv4()}`
+        isNewState = true
+        // Set specific behavior based on node type
+        switch (targetNode.node_type) {
+          case 'and':
+            // Count the number of incoming connections for AND node
+            const andInputsResult = await client.query(
+              `SELECT COUNT(*) as count
+              FROM section0.cr07Ddiagram_connections c
+              WHERE c.target_node_id = $1`,
+              [targetNodeId]
+            )
+            inputsRequired = parseInt(andInputsResult.rows[0].count)
+            // Set AND nodes to active so they execute immediately
+            status = 'active'
+            break
+            
+          case 'or':
+            // For OR nodes, we'll set required inputs to 1
+            inputsRequired = 1
+            // Set OR nodes to active so they execute immediately
+            status = 'active'
+            break
+            
+          case 'trigger':
+            // Trigger nodes are waiting for user interaction
+            status = 'waiting'
+            
+            if (targetNode.data.triggerEvents.includes('approve')) {
+              // Check if we need approvals from all users or just one
+              const approvalMode = targetNode.data.approvalMode || 'any' // Default to any
+              
+              // If all approvals required, count how many
+              if (approvalMode === 'all') {
+                if (targetNode.data.humanType === 'personal') {
+                  inputsRequired = (targetNode.data.humanIds || []).length
+                } else if (targetNode.data.humanType === 'role') {
+                  inputsRequired = await this.getNumberOfUsersInRoles(client, targetNode.data.humanRoleIds || [])
+                }
+              } else {
+                // Any approval is enough
+                inputsRequired = 1
+              }
+            }
+            break
+            
+          case 'decision':
+            // Decision nodes execute immediately
+            status = 'active'
+            break
+            
+          case 'send':
+            // Send nodes execute immediately
+            status = 'active'
+            break
+            
+          default:
+            // Other node types are pending by default
+            status = 'pending'
+        }
+        
+        // Create the node state (không còn lưu data tại node_state)
+        await client.query(
+          `INSERT INTO section0.cr08anode_states
+          (id, workflow_instance_id, node_id, status, inputs_required)
+          VALUES ($1, $2, $3, $4, $5)`,
+          [nodeStateId, workflowInstanceId, targetNodeId, status, inputsRequired]
+        )
+        
+        // For trigger nodes with approve event, create approval records for connected human nodes
+        if (targetNode.node_type === 'trigger' && targetNode.data.triggerEvents.includes('approve')) {
+          await this.createHumanApprovals(client, nodeStateId, targetNode.data)
+        }
+        
+        // For nodes that should execute immediately, queue them
+        if (status === 'active') {
+          // This would trigger immediate execution for nodes like 'send'
+          await this.executeNode(client, workflowInstanceId, preNodeStateId, nodeStateId, targetNodeId, targetNode.node_type)
+        }
       }
     }
     await this.checkWorkflowCompletion(client, workflowInstanceId)
