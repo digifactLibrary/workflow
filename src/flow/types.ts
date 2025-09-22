@@ -14,6 +14,7 @@ export type AlgoNodeType =
   | 'and'
   | 'or'
   | 'comment'
+  | 'status'
 
 export type AlgoNodeData = {
   label: string
@@ -41,6 +42,16 @@ export type AlgoNodeData = {
   // Flags to indicate if options have been initialized
   humanPersonalPeopleInitialized?: boolean
   humanRolePeopleInitialized?: boolean
+  // Status node specific fields
+  statusColor?: string
+  statusInputSource?: 'api' | 'database'
+  statusApiMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  statusApiUrl?: string
+  statusApiHeaders?: string
+  statusApiBody?: string
+  statusDbConnection?: string
+  statusDbQuery?: string
+  statusDbParams?: string
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>

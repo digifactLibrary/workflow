@@ -25,6 +25,13 @@ const iconMap = {
   Check,
 }
 
+const statusColorPresets = ['#22c55e', '#f97316', '#ef4444', '#3b82f6', '#a855f7', '#facc15'] as const
+const statusSourceOptions = [
+  { value: 'api', label: 'API' },
+  { value: 'database', label: 'Database query' },
+] as const
+const statusHttpMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
+
 // Component tái sử dụng cho các panel toggle buttons
 interface ToggleButtonsPanelProps {
   title: string;
@@ -198,6 +205,14 @@ export function DetailBar() {
   // API / Webhook drafts for trigger nodes
   const [apiDraft, setApiDraft] = useState('')
   const [webhookDraft, setWebhookDraft] = useState('')
+  // Status node drafts
+  const [statusApiMethod, setStatusApiMethod] = useState<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>('GET')
+  const [statusApiUrlDraft, setStatusApiUrlDraft] = useState('')
+  const [statusApiHeadersDraft, setStatusApiHeadersDraft] = useState('')
+  const [statusApiBodyDraft, setStatusApiBodyDraft] = useState('')
+  const [statusDbConnectionDraft, setStatusDbConnectionDraft] = useState('')
+  const [statusDbQueryDraft, setStatusDbQueryDraft] = useState('')
+  const [statusDbParamsDraft, setStatusDbParamsDraft] = useState('')
   const [moduleQuery, setModuleQuery] = useState('')
   const [humanPersonQuery, setHumanPersonQuery] = useState('')
   const [humanRoleQuery, setHumanRoleQuery] = useState('')
@@ -270,14 +285,46 @@ export function DetailBar() {
       setLabelDraft((selectedNode.data as any)?.label ?? '')
       setApiDraft(((selectedNode.data as any)?.api ?? '') as string)
       setWebhookDraft(((selectedNode.data as any)?.webhook ?? '') as string)
+      if (selectedNode.type === 'status') {
+        const data: any = selectedNode.data || {}
+        setStatusApiMethod((data?.statusApiMethod ?? 'GET') as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE')
+        setStatusApiUrlDraft((data?.statusApiUrl ?? '') as string)
+        setStatusApiHeadersDraft((data?.statusApiHeaders ?? '') as string)
+        setStatusApiBodyDraft((data?.statusApiBody ?? '') as string)
+        setStatusDbConnectionDraft((data?.statusDbConnection ?? '') as string)
+        setStatusDbQueryDraft((data?.statusDbQuery ?? '') as string)
+        setStatusDbParamsDraft((data?.statusDbParams ?? '') as string)
+      } else {
+        setStatusApiMethod('GET')
+        setStatusApiUrlDraft('')
+        setStatusApiHeadersDraft('')
+        setStatusApiBodyDraft('')
+        setStatusDbConnectionDraft('')
+        setStatusDbQueryDraft('')
+        setStatusDbParamsDraft('')
+      }
     } else if (selectedEdge) {
       setLabelDraft((selectedEdge.data as any)?.label ?? '')
       setApiDraft('')
       setWebhookDraft('')
+      setStatusApiMethod('GET')
+      setStatusApiUrlDraft('')
+      setStatusApiHeadersDraft('')
+      setStatusApiBodyDraft('')
+      setStatusDbConnectionDraft('')
+      setStatusDbQueryDraft('')
+      setStatusDbParamsDraft('')
     } else {
       setLabelDraft('')
       setApiDraft('')
       setWebhookDraft('')
+      setStatusApiMethod('GET')
+      setStatusApiUrlDraft('')
+      setStatusApiHeadersDraft('')
+      setStatusApiBodyDraft('')
+      setStatusDbConnectionDraft('')
+      setStatusDbQueryDraft('')
+      setStatusDbParamsDraft('')
     }
     // reset queries for unrelated sections
     if (selectedNode?.type !== 'trigger') setModuleQuery('')
@@ -702,6 +749,199 @@ export function DetailBar() {
           }}
         />
       </div>
+
+      {selectedNode?.type === 'status' ? (
+        <div className="mt-4 space-y-4">
+          {(() => {
+            const source = ((selectedNode.data as any)?.statusInputSource ?? 'api') as 'api' | 'database'
+            return (
+              <>
+                <div className="space-y-2">
+                  <div className="text-xs font-medium">Màu chấm hiển thị</div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      {statusColorPresets.map((color) => {
+                        const active = ((selectedNode.data as any)?.statusColor ?? '#22c55e') === color
+                        return (
+                          <button
+                            key={color}
+                            type="button"
+                            aria-label={`Chọn màu ${color}`}
+                            className={`h-6 w-6 rounded-full border-2 transition ${active ? 'border-slate-900 shadow-[0_0_0_2px_rgba(15,23,42,0.15)]' : 'border-transparent shadow'}`}
+                            style={{ backgroundColor: color }}
+                            onClick={() => updateNodeData(selectedNode.id, { statusColor: color })}
+                          />
+                        )
+                      })}
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Tùy chỉnh</span>
+                      <Input
+                        type="color"
+                        value={((selectedNode.data as any)?.statusColor ?? '#22c55e') as string}
+                        onChange={(e) => updateNodeData(selectedNode.id, { statusColor: e.target.value })}
+                        className="h-8 w-12 cursor-pointer border border-input bg-transparent p-1 shadow-none"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-medium">Nguồn dữ liệu đầu vào</div>
+                  <div className="flex gap-2">
+                    {statusSourceOptions.map((option) => {
+                      const active = ((selectedNode.data as any)?.statusInputSource ?? 'api') === option.value
+                      return (
+                        <Button
+                          key={option.value}
+                          size="sm"
+                          variant={active ? 'default' : 'outline'}
+                          className="h-8 px-3 text-xs"
+                          onClick={() => updateNodeData(selectedNode.id, { statusInputSource: option.value })}
+                        >
+                          {option.label}
+                        </Button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Chọn cách khối status lấy dữ liệu hiển thị: trực tiếp từ API hoặc câu truy vấn database.
+                  </p>
+                </div>
+
+                {source === 'api' ? (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">HTTP method</div>
+                      <div className="flex flex-wrap gap-2">
+                        {statusHttpMethods.map((method) => {
+                          const active = statusApiMethod === method
+                          return (
+                            <Button
+                              key={method}
+                              type="button"
+                              size="sm"
+                              variant={active ? 'default' : 'outline'}
+                              className="h-8 px-3 text-xs"
+                              onClick={() => {
+                                const next = method
+                                setStatusApiMethod(next)
+                                updateNodeData(selectedNode.id, { statusApiMethod: next })
+                              }}
+                            >
+                              {method}
+                            </Button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Endpoint URL</label>
+                      <Input
+                        value={statusApiUrlDraft}
+                        placeholder="https://api.example.com/status"
+                        onChange={(e) => setStatusApiUrlDraft(e.target.value)}
+                        onBlur={() => updateNodeData(selectedNode.id, { statusApiUrl: statusApiUrlDraft.trim() })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') updateNodeData(selectedNode.id, { statusApiUrl: statusApiUrlDraft.trim() })
+                          if (e.key === 'Escape') {
+                            setStatusApiUrlDraft(((selectedNode.data as any)?.statusApiUrl ?? '') as string)
+                          }
+                        }}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Headers (JSON, tùy chọn)</label>
+                      <textarea
+                        value={statusApiHeadersDraft}
+                        placeholder='{"Authorization": "Bearer token"}'
+                        className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onChange={(e) => setStatusApiHeadersDraft(e.target.value)}
+                        onBlur={() => updateNodeData(selectedNode.id, { statusApiHeaders: statusApiHeadersDraft })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setStatusApiHeadersDraft(((selectedNode.data as any)?.statusApiHeaders ?? '') as string)
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Payload/Mapping (JSON, tùy chọn)</label>
+                      <textarea
+                        value={statusApiBodyDraft}
+                        placeholder='{"customerId": "123"}'
+                        className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onChange={(e) => setStatusApiBodyDraft(e.target.value)}
+                        onBlur={() => updateNodeData(selectedNode.id, { statusApiBody: statusApiBodyDraft })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setStatusApiBodyDraft(((selectedNode.data as any)?.statusApiBody ?? '') as string)
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Kết nối database</label>
+                      <Input
+                        value={statusDbConnectionDraft}
+                        placeholder="production-db hoặc URL kết nối"
+                        onChange={(e) => setStatusDbConnectionDraft(e.target.value)}
+                        onBlur={() => updateNodeData(selectedNode.id, { statusDbConnection: statusDbConnectionDraft.trim() })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') updateNodeData(selectedNode.id, { statusDbConnection: statusDbConnectionDraft.trim() })
+                          if (e.key === 'Escape') {
+                            setStatusDbConnectionDraft(((selectedNode.data as any)?.statusDbConnection ?? '') as string)
+                          }
+                        }}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Câu truy vấn</label>
+                      <textarea
+                        value={statusDbQueryDraft}
+                        placeholder="SELECT status FROM orders WHERE id = $1"
+                        className="min-h-[88px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onChange={(e) => setStatusDbQueryDraft(e.target.value)}
+                        onBlur={() => updateNodeData(selectedNode.id, { statusDbQuery: statusDbQueryDraft })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setStatusDbQueryDraft(((selectedNode.data as any)?.statusDbQuery ?? '') as string)
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Parameters (JSON, tùy chọn)</label>
+                      <textarea
+                        value={statusDbParamsDraft}
+                        placeholder='{"id": "123"}'
+                        className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onChange={(e) => setStatusDbParamsDraft(e.target.value)}
+                        onBlur={() => updateNodeData(selectedNode.id, { statusDbParams: statusDbParamsDraft })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setStatusDbParamsDraft(((selectedNode.data as any)?.statusDbParams ?? '') as string)
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            )
+          })()}
+        </div>
+      ) : null}
 
       {selectedNode?.type === 'trigger' ? (
         <div className="mt-4 space-y-4">

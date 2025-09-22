@@ -199,6 +199,22 @@ export const useFlowStore = create<FlowState>()(
             t === 'and' ? { data: { label: 'AND' }, width: 48, height: 24 } :
             t === 'or' ? { data: { label: 'OR' }, width: 48, height: 24 } :
             t === 'comment' ? { data: { label: 'Comment' } } :
+            t === 'status'
+              ? {
+                  data: {
+                    label: 'Status',
+                    statusColor: '#22c55e',
+                    statusInputSource: 'api',
+                    statusApiMethod: 'GET',
+                    statusApiUrl: '',
+                    statusApiHeaders: '',
+                    statusApiBody: '',
+                    statusDbConnection: '',
+                    statusDbQuery: '',
+                    statusDbParams: '',
+                  },
+                }
+              :
             { data: { label: String(t).toUpperCase() } }
           )),
         } as AlgoNode
@@ -327,4 +343,3 @@ export const useFlowStore = create<FlowState>()(
       setAutosave: (v) => set({ autosave: v }),
     })
 )
-

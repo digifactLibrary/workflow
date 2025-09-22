@@ -28,6 +28,7 @@ import HumanNode from './flow/nodes/HumanNode'
 import AndNode from './flow/nodes/AndNode'
 import OrNode from './flow/nodes/OrNode'
 import CommentNode from './flow/nodes/CommentNode'
+import StatusNode from './flow/nodes/StatusNode'
 import DirectionEdge from './flow/edges/DirectionEdge'
 import { Palette } from './flow/palette'
 import { Topbar } from './components/Topbar'
@@ -51,6 +52,7 @@ const nodeTypes: NodeTypes = {
   and: AndNode,
   or: OrNode,
   comment: CommentNode,
+  status: StatusNode,
 }
 
 const edgeTypes: EdgeTypes = { dir: DirectionEdge }

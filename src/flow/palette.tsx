@@ -1,6 +1,6 @@
 import { Separator } from '../components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '../components/ui/tooltip'
-import { CirclePlay, Square, Diamond, Bolt, Send, StickyNote, SquaresIntersect, SplitSquareHorizontal, User, Download, Upload } from 'lucide-react'
+import { CirclePlay, Square, Diamond, Bolt, Send, StickyNote, SquaresIntersect, SplitSquareHorizontal, User, Download, Upload, Activity } from 'lucide-react'
 import { useReactFlow } from '@xyflow/react'
 import { useFlowStore } from '../state/flowStore'
 import React from 'react'
@@ -97,6 +97,19 @@ export function Palette() {
           type="comment"
           label="Comment"
           preview={<div className="h-6 w-12 rounded-md border-2 border-yellow-300 bg-yellow-50 grid place-items-center text-yellow-700"><StickyNote className="h-4 w-4"/></div>}
+        />
+        <Item
+          type="status"
+          label="Status"
+          preview={
+            <div className="flex h-6 w-12 items-center justify-center gap-1 rounded-md border-2 border-emerald-300 bg-emerald-50 text-emerald-600">
+              <span className="relative flex h-3 w-3 items-center justify-center">
+                <span className="absolute h-3 w-3 rounded-full opacity-60 animate-ping bg-emerald-400" />
+                <span className="relative h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              </span>
+              <Activity className="h-4 w-4" />
+            </div>
+          }
         />
         <Item
           type="end"
