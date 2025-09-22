@@ -14,11 +14,63 @@ import type { AlgoNode, AlgoEdge, AlgoNodeType, AlgoNodeData } from '../flow/typ
 
 type Diagram = { nodes: AlgoNode[]; edges: AlgoEdge[] }
 
+type HistoryStack = {
+  past: Diagram[]
+  future: Diagram[]
+  pending: Diagram | null
+}
+
+const HISTORY_LIMIT = 100
+
+function cloneDiagram(diagram: Diagram): Diagram {
+  const structured = (globalThis as any)?.structuredClone
+  if (typeof structured === 'function') {
+    return structured(diagram)
+  }
+  return JSON.parse(JSON.stringify(diagram)) as Diagram
+}
+
+function captureDiagram(source: { nodes: AlgoNode[]; edges: AlgoEdge[] }): Diagram {
+  return cloneDiagram({ nodes: source.nodes, edges: source.edges })
+}
+
+function pushPast(
+  history: HistoryStack,
+  snapshot: Diagram,
+  options: { clearFuture?: boolean; clone?: boolean } = {}
+): void {
+  const { clearFuture = true, clone: shouldClone = true } = options
+  const entry = shouldClone ? cloneDiagram(snapshot) : snapshot
+  history.past.push(entry)
+  if (history.past.length > HISTORY_LIMIT) {
+    history.past.splice(0, history.past.length - HISTORY_LIMIT)
+  }
+  if (clearFuture) {
+    history.future.length = 0
+  }
+}
+
+function pushFuture(history: HistoryStack, snapshot: Diagram, options: { clone?: boolean } = {}): void {
+  const { clone: shouldClone = true } = options
+  const entry = shouldClone ? cloneDiagram(snapshot) : snapshot
+  history.future.push(entry)
+  if (history.future.length > HISTORY_LIMIT) {
+    history.future.splice(0, history.future.length - HISTORY_LIMIT)
+  }
+}
+
+function flushPending(history: HistoryStack): void {
+  if (history.pending) {
+    pushPast(history, history.pending, { clone: false })
+    history.pending = null
+  }
+}
+
 type FlowState = Diagram & {
   rfInstanceReady: boolean
   autosave: boolean
   selection: { nodeIds: string[]; edgeIds: string[] }
-  history: { past: Diagram[]; future: Diagram[] }
+  history: HistoryStack
   editingNodeId?: string
   setDiagram: (d: Diagram, push?: boolean) => void
   pushHistory: (d?: Diagram) => void
@@ -46,7 +98,7 @@ export const useFlowStore = create<FlowState>()(
       rfInstanceReady: false,
       autosave: true,
       selection: { nodeIds: [], edgeIds: [] },
-      history: { past: [], future: [] },
+      history: { past: [], future: [], pending: null },
       editingNodeId: undefined,
 
       setDiagram: (d, push = true) => set((s) => {
@@ -78,47 +130,81 @@ export const useFlowStore = create<FlowState>()(
             return e
           }),
         }
-        if (push) s.history.past.push({ nodes: s.nodes, edges: s.edges })
-        s.history.future = []
+        if (push) {
+          flushPending(s.history)
+          pushPast(s.history, captureDiagram(s), { clone: false })
+        } else {
+          s.history = { past: [], future: [], pending: null }
+        }
         return { ...next, editingNodeId: undefined }
       }),
 
       pushHistory: (d) => set((s) => {
-        const snapshot = d ?? { nodes: s.nodes, edges: s.edges }
-        s.history.past.push(JSON.parse(JSON.stringify(snapshot)))
-        s.history.future = []
+        flushPending(s.history)
+        const snapshot = d ? cloneDiagram(d) : captureDiagram(s)
+        pushPast(s.history, snapshot, { clone: false })
         return {}
       }),
 
       undo: () => set((s) => {
-        if (s.history.past.length === 0) return {}
-        const prev = s.history.past.pop()!
-        s.history.future.push({ nodes: s.nodes, edges: s.edges })
-        return { nodes: prev.nodes, edges: prev.edges }
+        flushPending(s.history)
+        const prev = s.history.past.pop()
+        if (!prev) return {}
+        const current = captureDiagram(s)
+        pushFuture(s.history, current, { clone: false })
+        const snapshot = cloneDiagram(prev)
+        return { nodes: snapshot.nodes, edges: snapshot.edges, selection: { nodeIds: [], edgeIds: [] }, editingNodeId: undefined }
       }),
 
       redo: () => set((s) => {
         const next = s.history.future.pop()
         if (!next) return {}
-        s.history.past.push({ nodes: s.nodes, edges: s.edges })
-        return { nodes: next.nodes, edges: next.edges }
+        const current = captureDiagram(s)
+        pushPast(s.history, current, { clearFuture: false, clone: false })
+        const snapshot = cloneDiagram(next)
+        return { nodes: snapshot.nodes, edges: snapshot.edges, selection: { nodeIds: [], edgeIds: [] }, editingNodeId: undefined }
       }),
 
-      clear: () => set({ ...initial, history: { past: [], future: [] }, editingNodeId: undefined }),
+      clear: () => set({ ...initial, history: { past: [], future: [], pending: null }, editingNodeId: undefined }),
 
       onNodesChange: (changes) => set((s) => {
-        const prev = { nodes: s.nodes, edges: s.edges }
         const nodes = applyNodeChanges(changes as any, s.nodes as any) as unknown as AlgoNode[]
-        s.history.past.push(prev)
-        s.history.future = []
+        if (!changes.length) {
+          return { nodes }
+        }
+        const meaningful = changes.filter((change: any) => change.type !== 'select')
+        if (!meaningful.length) {
+          return { nodes }
+        }
+        const prev = captureDiagram(s)
+        const isContinuous = meaningful.some((change: any) => (
+          (change.type === 'position' && change.dragging === true) ||
+          (change.type === 'dimensions' && change.resizing === true)
+        ))
+        if (isContinuous) {
+          if (!s.history.pending) {
+            s.history.pending = prev
+          }
+          return { nodes }
+        }
+        const snapshot = s.history.pending ?? prev
+        s.history.pending = null
+        pushPast(s.history, snapshot, { clone: false })
         return { nodes }
       }),
 
       onEdgesChange: (changes) => set((s) => {
-        const prev = { nodes: s.nodes, edges: s.edges }
         const edges = applyEdgeChanges(changes as any, s.edges as any) as unknown as AlgoEdge[]
-        s.history.past.push(prev)
-        s.history.future = []
+        if (!changes.length) {
+          return { edges }
+        }
+        const meaningful = changes.filter((change: any) => change.type !== 'select')
+        if (!meaningful.length) {
+          return { edges }
+        }
+        flushPending(s.history)
+        const prev = captureDiagram(s)
+        pushPast(s.history, prev, { clone: false })
         return { edges }
       }),
 
@@ -168,10 +254,10 @@ export const useFlowStore = create<FlowState>()(
           data: edgeData,
           style,
         } as Edge
-        const prev = { nodes: s.nodes, edges: s.edges }
+        flushPending(s.history)
+        const prev = captureDiagram(s)
         const edges = addEdge(edge as any, s.edges as any) as unknown as AlgoEdge[]
-        s.history.past.push(prev)
-        s.history.future = []
+        pushPast(s.history, prev, { clone: false })
         return { edges }
       }),
 
@@ -226,9 +312,9 @@ export const useFlowStore = create<FlowState>()(
           ;(node as any).width = 48
           ;(node as any).height = 24
         }
-        const prev = { nodes: s.nodes, edges: s.edges }
-        s.history.past.push(prev)
-        s.history.future = []
+        flushPending(s.history)
+        const prev = captureDiagram(s)
+        pushPast(s.history, prev, { clone: false })
         return { nodes: [...s.nodes, node] }
       }),
 
@@ -299,36 +385,36 @@ export const useFlowStore = create<FlowState>()(
           link(jn, e3)
         }
 
-        const prev = { nodes: s.nodes, edges: s.edges }
-        s.history.past.push(prev)
-        s.history.future = []
+        flushPending(s.history)
+        const prev = captureDiagram(s)
+        pushPast(s.history, prev, { clone: false })
         return { nodes: [...s.nodes, ...nodes], edges: [...s.edges, ...edges] }
       }),
 
       updateNodeData: (id, data) => set((s) => {
-        const prev = { nodes: s.nodes, edges: s.edges }
+        flushPending(s.history)
+        const prev = captureDiagram(s)
         const nodes = s.nodes.map((n) => (n.id === id ? ({ ...n, data: { ...(n.data as any), ...data } } as AlgoNode) : n))
-        s.history.past.push(prev)
-        s.history.future = []
+        pushPast(s.history, prev, { clone: false })
         return { nodes }
       }),
 
       updateEdgeData: (id, data) => set((s) => {
-        const prev = { nodes: s.nodes, edges: s.edges }
+        flushPending(s.history)
+        const prev = captureDiagram(s)
         const edges = s.edges.map((e) => (e.id === id ? ({ ...e, data: { ...((e.data as any) || {}), ...data } } as AlgoEdge) : e))
-        s.history.past.push(prev)
-        s.history.future = []
+        pushPast(s.history, prev, { clone: false })
         return { edges }
       }),
 
       deleteSelection: () => set((s) => {
         const { nodeIds, edgeIds } = s.selection
         if (nodeIds.length === 0 && edgeIds.length === 0) return {}
-        const prev = { nodes: s.nodes, edges: s.edges }
+        flushPending(s.history)
+        const prev = captureDiagram(s)
         const nodes = s.nodes.filter((n) => !nodeIds.includes(n.id))
         const edges = s.edges.filter((e) => !edgeIds.includes(e.id) && !nodeIds.includes(e.source) && !nodeIds.includes(e.target))
-        s.history.past.push(prev)
-        s.history.future = []
+        pushPast(s.history, prev, { clone: false })
         const editingNodeId = s.editingNodeId && nodeIds.includes(s.editingNodeId) ? undefined : s.editingNodeId
         return { nodes, edges, selection: { nodeIds: [], edgeIds: [] }, editingNodeId }
       }),
