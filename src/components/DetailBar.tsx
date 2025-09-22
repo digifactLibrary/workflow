@@ -5,6 +5,7 @@ import { Input } from './ui/input'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { Badge } from './ui/badge'
+import { Switch } from './ui/switch'
 import { PlusCircle, Send, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText, RefreshCw, Plus, Check } from 'lucide-react'
 import type { AlgoNodeData } from '../flow/types'
 
@@ -25,6 +26,15 @@ const iconMap = {
   Plus,
   Check,
 }
+
+const statusColorPresets = ['#22c55e', '#f97316', '#ef4444', '#3b82f6', '#a855f7', '#facc15'] as const
+const statusSourceOptions = [
+  { value: 'api', label: 'API' },
+  { value: 'database', label: 'Database query' },
+] as const
+const statusHttpMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
+type IntegrationSource = 'api' | 'database'
+type IntegrationHttpMethod = (typeof statusHttpMethods)[number]
 
 // Component tái sử dụng cho các panel toggle buttons
 interface ToggleButtonsPanelProps {
@@ -196,9 +206,14 @@ export function DetailBar() {
 
   const [labelDraft, setLabelDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  // API / Webhook drafts for trigger nodes
-  const [apiDraft, setApiDraft] = useState('')
-  const [webhookDraft, setWebhookDraft] = useState('')
+  const [integrationApiMethod, setIntegrationApiMethod] = useState<IntegrationHttpMethod>('GET')
+  const [integrationApiUrlDraft, setIntegrationApiUrlDraft] = useState('')
+  const [integrationApiHeadersDraft, setIntegrationApiHeadersDraft] = useState('')
+  const [integrationApiBodyDraft, setIntegrationApiBodyDraft] = useState('')
+  const [integrationDbConnectionDraft, setIntegrationDbConnectionDraft] = useState('')
+  const [integrationDbQueryDraft, setIntegrationDbQueryDraft] = useState('')
+  const [integrationDbParamsDraft, setIntegrationDbParamsDraft] = useState('')
+  const [integrationEnabled, setIntegrationEnabled] = useState(false)
   const [moduleQuery, setModuleQuery] = useState('')
   const [humanPersonQuery, setHumanPersonQuery] = useState('')
   const [humanRoleQuery, setHumanRoleQuery] = useState('')
@@ -281,17 +296,36 @@ export function DetailBar() {
 
   useEffect(() => {
     if (selectedNode) {
-      setLabelDraft((selectedNode.data as any)?.label ?? '')
-      setApiDraft(((selectedNode.data as any)?.api ?? '') as string)
-      setWebhookDraft(((selectedNode.data as any)?.webhook ?? '') as string)
+      const data: any = selectedNode.data || {}
+      setLabelDraft(data?.label ?? '')
+      setIntegrationApiMethod((data?.integrationApiMethod ?? 'GET') as IntegrationHttpMethod)
+      setIntegrationApiUrlDraft((data?.integrationApiUrl ?? data?.api ?? '') as string)
+      setIntegrationApiHeadersDraft((data?.integrationApiHeaders ?? '') as string)
+      setIntegrationApiBodyDraft((data?.integrationApiBody ?? '') as string)
+      setIntegrationDbConnectionDraft((data?.integrationDbConnection ?? '') as string)
+      setIntegrationDbQueryDraft((data?.integrationDbQuery ?? '') as string)
+      setIntegrationDbParamsDraft((data?.integrationDbParams ?? '') as string)
+      setIntegrationEnabled(selectedNode.type === 'get' || selectedNode.type === 'set' ? true : Boolean(data?.integrationEnabled))
     } else if (selectedEdge) {
       setLabelDraft((selectedEdge.data as any)?.label ?? '')
-      setApiDraft('')
-      setWebhookDraft('')
+      setIntegrationApiMethod('GET')
+      setIntegrationApiUrlDraft('')
+      setIntegrationApiHeadersDraft('')
+      setIntegrationApiBodyDraft('')
+      setIntegrationDbConnectionDraft('')
+      setIntegrationDbQueryDraft('')
+      setIntegrationDbParamsDraft('')
+      setIntegrationEnabled(false)
     } else {
       setLabelDraft('')
-      setApiDraft('')
-      setWebhookDraft('')
+      setIntegrationApiMethod('GET')
+      setIntegrationApiUrlDraft('')
+      setIntegrationApiHeadersDraft('')
+      setIntegrationApiBodyDraft('')
+      setIntegrationDbConnectionDraft('')
+      setIntegrationDbQueryDraft('')
+      setIntegrationDbParamsDraft('')
+      setIntegrationEnabled(false)
     }
     // reset queries for unrelated sections
     if (selectedNode?.type !== 'trigger') setModuleQuery('')
@@ -635,6 +669,185 @@ export function DetailBar() {
   // Hide DetailBar for Start/End/And/Or nodes
   if (selectedNode && (selectedNode.type === 'start' || selectedNode.type === 'end' || selectedNode.type === 'and' || selectedNode.type === 'or')) return null
 
+  const integrationSource: IntegrationSource = ((selectedNode?.data as any)?.integrationSource ?? 'api') as IntegrationSource
+
+  const IntegrationSection = ({ description, optional }: { description: string; optional?: boolean }) => {
+    if (!selectedNode) return null
+    const nodeData: any = selectedNode.data || {}
+    const enabled = optional ? integrationEnabled : true
+    return (
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-xs font-medium">
+              Nguồn dữ liệu đầu vào{optional ? ' (tùy chọn)' : ''}
+            </div>
+            <p className="text-xs text-muted-foreground">{description}</p>
+          </div>
+          {optional ? (
+            <Switch
+              checked={enabled}
+              onCheckedChange={(value) => {
+                setIntegrationEnabled(value)
+                updateNodeData(selectedNode.id, { integrationEnabled: value })
+              }}
+              className="mt-1"
+            />
+          ) : null}
+        </div>
+
+        {!enabled ? null : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {statusSourceOptions.map((option) => {
+                const active = integrationSource === option.value
+                return (
+                  <Button
+                    key={option.value}
+                  size="sm"
+                  variant={active ? 'default' : 'outline'}
+                  className="h-8 px-3 text-xs"
+                  onClick={() => updateNodeData(selectedNode.id, { integrationSource: option.value })}
+                >
+                  {option.label}
+                </Button>
+              )
+            })}
+          </div>
+
+            {integrationSource === 'api' ? (
+              <div className="space-y-3">
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">HTTP method</div>
+              <div className="flex flex-wrap gap-2">
+                {statusHttpMethods.map((method) => {
+                  const active = integrationApiMethod === method
+                  return (
+                    <Button
+                      key={method}
+                      type="button"
+                      size="sm"
+                      variant={active ? 'default' : 'outline'}
+                      className="h-8 px-3 text-xs"
+                      onClick={() => {
+                        setIntegrationApiMethod(method)
+                        updateNodeData(selectedNode.id, { integrationApiMethod: method })
+                      }}
+                    >
+                      {method}
+                    </Button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Endpoint URL</label>
+              <Input
+                value={integrationApiUrlDraft}
+                placeholder="https://api.example.com/status"
+                onChange={(e) => setIntegrationApiUrlDraft(e.target.value)}
+                onBlur={() => updateNodeData(selectedNode.id, { integrationApiUrl: integrationApiUrlDraft.trim() })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') updateNodeData(selectedNode.id, { integrationApiUrl: integrationApiUrlDraft.trim() })
+                  if (e.key === 'Escape') {
+                    setIntegrationApiUrlDraft(((nodeData?.integrationApiUrl ?? nodeData?.api ?? '') as string))
+                  }
+                }}
+                className="h-9"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Headers (JSON, tùy chọn)</label>
+              <textarea
+                value={integrationApiHeadersDraft}
+                placeholder='{"Authorization": "Bearer token"}'
+                className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onChange={(e) => setIntegrationApiHeadersDraft(e.target.value)}
+                onBlur={() => updateNodeData(selectedNode.id, { integrationApiHeaders: integrationApiHeadersDraft })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIntegrationApiHeadersDraft(((nodeData?.integrationApiHeaders ?? '') as string))
+                  }
+                }}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Payload/Mapping (JSON, tùy chọn)</label>
+              <textarea
+                value={integrationApiBodyDraft}
+                placeholder='{"customerId": "123"}'
+                className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onChange={(e) => setIntegrationApiBodyDraft(e.target.value)}
+                onBlur={() => updateNodeData(selectedNode.id, { integrationApiBody: integrationApiBodyDraft })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIntegrationApiBodyDraft(((nodeData?.integrationApiBody ?? '') as string))
+                  }
+                }}
+              />
+            </div>
+          </div>
+            ) : (
+              <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Kết nối database</label>
+              <Input
+                value={integrationDbConnectionDraft}
+                placeholder="production-db hoặc URL kết nối"
+                onChange={(e) => setIntegrationDbConnectionDraft(e.target.value)}
+                onBlur={() => updateNodeData(selectedNode.id, { integrationDbConnection: integrationDbConnectionDraft.trim() })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') updateNodeData(selectedNode.id, { integrationDbConnection: integrationDbConnectionDraft.trim() })
+                  if (e.key === 'Escape') {
+                    setIntegrationDbConnectionDraft(((nodeData?.integrationDbConnection ?? '') as string))
+                  }
+                }}
+                className="h-9"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Câu truy vấn</label>
+              <textarea
+                value={integrationDbQueryDraft}
+                placeholder="SELECT status FROM orders WHERE id = $1"
+                className="min-h-[88px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onChange={(e) => setIntegrationDbQueryDraft(e.target.value)}
+                onBlur={() => updateNodeData(selectedNode.id, { integrationDbQuery: integrationDbQueryDraft })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIntegrationDbQueryDraft(((nodeData?.integrationDbQuery ?? '') as string))
+                  }
+                }}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Parameters (JSON, tùy chọn)</label>
+              <textarea
+                value={integrationDbParamsDraft}
+                placeholder='{"id": "123"}'
+                className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onChange={(e) => setIntegrationDbParamsDraft(e.target.value)}
+                onBlur={() => updateNodeData(selectedNode.id, { integrationDbParams: integrationDbParamsDraft })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIntegrationDbParamsDraft(((nodeData?.integrationDbParams ?? '') as string))
+                  }
+                }}
+              />
+            </div>
+          </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const title = selectedNode ? `Node: ${selectedNode.type}` : 'Edge'
 
   return (
@@ -679,6 +892,42 @@ export function DetailBar() {
           }}
         />
       </div>
+
+      {selectedNode?.type === 'status' ? (
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Màu chấm hiển thị</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                {statusColorPresets.map((color) => {
+                  const active = ((selectedNode.data as any)?.statusColor ?? '#22c55e') === color
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      aria-label={`Chọn màu ${color}`}
+                      className={`h-6 w-6 rounded-full border-2 transition ${active ? 'border-slate-900 shadow-[0_0_0_2px_rgba(15,23,42,0.15)]' : 'border-transparent shadow'}`}
+                      style={{ backgroundColor: color }}
+                      onClick={() => updateNodeData(selectedNode.id, { statusColor: color })}
+                    />
+                  )
+                })}
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Tùy chỉnh</span>
+                <Input
+                  type="color"
+                  value={((selectedNode.data as any)?.statusColor ?? '#22c55e') as string}
+                  onChange={(e) => updateNodeData(selectedNode.id, { statusColor: e.target.value })}
+                  className="h-8 w-12 cursor-pointer border border-input bg-transparent p-1 shadow-none"
+                />
+              </label>
+            </div>
+          </div>
+
+          <IntegrationSection description="Chọn cách khối status lấy dữ liệu hiển thị: trực tiếp từ API hoặc câu truy vấn database." optional />
+        </div>
+      ) : null}
 
       {selectedNode?.type === 'trigger' ? (
         <div className="mt-4 space-y-4">
@@ -794,39 +1043,7 @@ export function DetailBar() {
             )}
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">API (tùy chọn)</label>
-            <Input
-              value={apiDraft}
-              placeholder="VD: https://api.yourdomain.com/endpoint"
-              onChange={(e) => setApiDraft(e.target.value)}
-              onBlur={() => {
-                if (!selectedNode) return
-                updateNodeData(selectedNode.id, { api: apiDraft.trim() })
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { api: apiDraft.trim() })
-                if (e.key === 'Escape') setApiDraft(((selectedNode?.data as any)?.api ?? '') as string)
-              }}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Webhook (tùy chọn)</label>
-            <Input
-              value={webhookDraft}
-              placeholder="VD: https://hooks.yourdomain.com/path"
-              onChange={(e) => setWebhookDraft(e.target.value)}
-              onBlur={() => {
-                if (!selectedNode) return
-                updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
-                if (e.key === 'Escape') setWebhookDraft(((selectedNode?.data as any)?.webhook ?? '') as string)
-              }}
-            />
-          </div>
+          <IntegrationSection description="Khai báo API hoặc truy vấn database để kích hoạt trigger với dữ liệu chính xác." optional />
         </div>
       ) : null}
 
@@ -982,40 +1199,6 @@ export function DetailBar() {
             </>
           ) : null}
 
-          {/* API/Webhook for Human (optional) */}
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">API (tùy chọn)</label>
-            <Input
-              value={apiDraft}
-              placeholder="VD: https://api.yourdomain.com/endpoint"
-              onChange={(e) => setApiDraft(e.target.value)}
-              onBlur={() => {
-                if (!selectedNode) return
-                updateNodeData(selectedNode.id, { api: apiDraft.trim() })
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { api: apiDraft.trim() })
-                if (e.key === 'Escape') setApiDraft(((selectedNode?.data as any)?.api ?? '') as string)
-              }}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Webhook (tùy chọn)</label>
-            <Input
-              value={webhookDraft}
-              placeholder="VD: https://hooks.yourdomain.com/path"
-              onChange={(e) => setWebhookDraft(e.target.value)}
-              onBlur={() => {
-                if (!selectedNode) return
-                updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
-                if (e.key === 'Escape') setWebhookDraft(((selectedNode?.data as any)?.webhook ?? '') as string)
-              }}
-            />
-          </div>
         </div>
       ) : null}
 
@@ -1121,416 +1304,15 @@ export function DetailBar() {
         </div>
       ) : null}
 
-      {selectedNode?.type === 'get' || selectedNode?.type === 'set' ? (
+      {selectedNode?.type === 'get' ? (
         <div className="mt-4 space-y-4">
-          {/* Data Source/Target Configuration */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">
-              {selectedNode.type === 'get' ? 'Nguồn dữ liệu' : 'Đích dữ liệu'}
-            </div>
-            <div className="space-y-2">
-              <div>
-                <label className="text-xs text-muted-foreground">Loại nguồn</label>
-                <select 
-                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
-                  value={(selectedNode.data as any)?.sourceType ?? 'database'}
-                  onChange={(e) => updateNodeData(selectedNode.id, { sourceType: e.target.value })}
-                >
-                  <option value="database">Database</option>
-                  <option value="api">API External</option>
-                  <option value="file">File System</option>
-                  <option value="cache">Cache/Memory</option>
-                  <option value="variable">Variable</option>
-                  <option value="form">Form Input</option>
-                  <option value="session">Session Storage</option>
-                  <option value="localStorage">Local Storage</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="text-xs text-muted-foreground">
-                  {selectedNode.type === 'get' ? 'Đường dẫn/Query' : 'Đường dẫn/Target'}
-                </label>
-                <Input
-                  value={(selectedNode.data as any)?.dataPath ?? ''}
-                  placeholder="VD: users.profile.name hoặc SELECT * FROM users WHERE id = ?"
-                  onChange={(e) => updateNodeData(selectedNode.id, { dataPath: e.target.value })}
-                />
-              </div>
+          <IntegrationSection description="Chỉ định API hoặc truy vấn database để lấy dữ liệu cho bước này." />
+        </div>
+      ) : null}
 
-              <div>
-                <label className="text-xs text-muted-foreground">Kiểu dữ liệu</label>
-                <select 
-                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
-                  value={(selectedNode.data as any)?.dataType ?? 'string'}
-                  onChange={(e) => updateNodeData(selectedNode.id, { dataType: e.target.value })}
-                >
-                  <option value="string">String</option>
-                  <option value="number">Number</option>
-                  <option value="boolean">Boolean</option>
-                  <option value="object">Object</option>
-                  <option value="array">Array</option>
-                  <option value="date">Date</option>
-                  <option value="json">JSON</option>
-                  <option value="xml">XML</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Value Configuration */}
-          {selectedNode.type === 'set' && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium">Cấu hình giá trị</div>
-              <div className="space-y-2">
-                <div>
-                  <label className="text-xs text-muted-foreground">Phương thức gán</label>
-                  <select 
-                    className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
-                    value={(selectedNode.data as any)?.setMethod ?? 'replace'}
-                    onChange={(e) => updateNodeData(selectedNode.id, { setMethod: e.target.value })}
-                  >
-                    <option value="replace">Thay thế (Replace)</option>
-                    <option value="append">Nối thêm (Append)</option>
-                    <option value="prepend">Thêm đầu (Prepend)</option>
-                    <option value="merge">Gộp (Merge)</option>
-                    <option value="increment">Tăng (Increment)</option>
-                    <option value="decrement">Giảm (Decrement)</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="text-xs text-muted-foreground">Giá trị</label>
-                  <Input
-                    value={(selectedNode.data as any)?.value ?? ''}
-                    placeholder="Nhập giá trị cần set hoặc expression"
-                    onChange={(e) => updateNodeData(selectedNode.id, { value: e.target.value })}
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="dynamic-value"
-                    checked={(selectedNode.data as any)?.isDynamic ?? false}
-                    onChange={(e) => updateNodeData(selectedNode.id, { isDynamic: e.target.checked })}
-                    className="rounded border-input"
-                  />
-                  <label htmlFor="dynamic-value" className="text-xs text-muted-foreground">
-                    Giá trị động (expression/variable)
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Validation & Transform */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Validation & Transform</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="validate-data"
-                  checked={(selectedNode.data as any)?.enableValidation ?? false}
-                  onChange={(e) => updateNodeData(selectedNode.id, { enableValidation: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <label htmlFor="validate-data" className="text-xs">Bật validation</label>
-              </div>
-              
-              {(selectedNode.data as any)?.enableValidation && (
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Validation rules</label>
-                    <Input
-                      value={(selectedNode.data as any)?.validationRules ?? ''}
-                      placeholder="VD: required|min:5|email"
-                      onChange={(e) => updateNodeData(selectedNode.id, { validationRules: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="transform-data"
-                  checked={(selectedNode.data as any)?.enableTransform ?? false}
-                  onChange={(e) => updateNodeData(selectedNode.id, { enableTransform: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <label htmlFor="transform-data" className="text-xs">Bật transform</label>
-              </div>
-
-              {(selectedNode.data as any)?.enableTransform && (
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Transform function</label>
-                    <Input
-                      value={(selectedNode.data as any)?.transformFunction ?? ''}
-                      placeholder="VD: toLowerCase() | formatDate() | customFunction()"
-                      onChange={(e) => updateNodeData(selectedNode.id, { transformFunction: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Error Handling */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Xử lý lỗi</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div>
-                <label className="text-xs text-muted-foreground">Chiến lược khi lỗi</label>
-                <select 
-                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
-                  value={(selectedNode.data as any)?.errorStrategy ?? 'throw'}
-                  onChange={(e) => updateNodeData(selectedNode.id, { errorStrategy: e.target.value })}
-                >
-                  <option value="throw">Throw Error (Dừng luồng)</option>
-                  <option value="continue">Continue (Bỏ qua lỗi)</option>
-                  <option value="retry">Retry (Thử lại)</option>
-                  <option value="fallback">Fallback (Giá trị mặc định)</option>
-                  <option value="log">Log Only (Chỉ ghi log)</option>
-                </select>
-              </div>
-
-              {((selectedNode.data as any)?.errorStrategy === 'retry') && (
-                <div>
-                  <label className="text-xs text-muted-foreground">Số lần thử lại</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={(selectedNode.data as any)?.retryCount ?? 3}
-                    onChange={(e) => updateNodeData(selectedNode.id, { retryCount: parseInt(e.target.value) || 3 })}
-                  />
-                </div>
-              )}
-
-              {((selectedNode.data as any)?.errorStrategy === 'fallback') && (
-                <div>
-                  <label className="text-xs text-muted-foreground">Giá trị fallback</label>
-                  <Input
-                    value={(selectedNode.data as any)?.fallbackValue ?? ''}
-                    placeholder="Giá trị mặc định khi lỗi"
-                    onChange={(e) => updateNodeData(selectedNode.id, { fallbackValue: e.target.value })}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Performance & Caching */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Performance & Caching</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              {selectedNode.type === 'get' && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="enable-cache"
-                      checked={(selectedNode.data as any)?.enableCache ?? false}
-                      onChange={(e) => updateNodeData(selectedNode.id, { enableCache: e.target.checked })}
-                      className="rounded border-input"
-                    />
-                    <label htmlFor="enable-cache" className="text-xs">Bật cache</label>
-                  </div>
-
-                  {(selectedNode.data as any)?.enableCache && (
-                    <div className="space-y-2">
-                      <div>
-                        <label className="text-xs text-muted-foreground">Cache TTL (giây)</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={(selectedNode.data as any)?.cacheTTL ?? 300}
-                          onChange={(e) => updateNodeData(selectedNode.id, { cacheTTL: parseInt(e.target.value) || 300 })}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Cache key</label>
-                        <Input
-                          value={(selectedNode.data as any)?.cacheKey ?? ''}
-                          placeholder="auto-generated hoặc custom key"
-                          onChange={(e) => updateNodeData(selectedNode.id, { cacheKey: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div>
-                <label className="text-xs text-muted-foreground">Timeout (ms)</label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={(selectedNode.data as any)?.timeout ?? 5000}
-                  onChange={(e) => updateNodeData(selectedNode.id, { timeout: parseInt(e.target.value) || 5000 })}
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="async-execution"
-                  checked={(selectedNode.data as any)?.asyncExecution ?? false}
-                  onChange={(e) => updateNodeData(selectedNode.id, { asyncExecution: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <label htmlFor="async-execution" className="text-xs">Thực thi bất đồng bộ</label>
-              </div>
-            </div>
-          </div>
-
-          {/* Connection Analysis */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Phân tích kết nối</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Đầu vào:</span>
-                <span className="font-medium">{edges.filter(e => e.target === selectedNode.id).length} kết nối</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Đầu ra:</span>
-                <span className="font-medium">{edges.filter(e => e.source === selectedNode.id).length} kết nối</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Data flow:</span>
-                <span className="font-medium text-blue-600">
-                  {selectedNode.type === 'get' ? 'Input → Process → Output' : 'Input → Transform → Store'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Test & Debug */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Test & Debug</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div>
-                <label className="text-xs text-muted-foreground">
-                  {selectedNode.type === 'get' ? 'Test query parameters' : 'Test input value'}
-                </label>
-                <Input
-                  value={(selectedNode.data as any)?.testInput ?? ''}
-                  placeholder={selectedNode.type === 'get' ? 'VD: {id: 123}' : 'VD: "new value" hoặc {data: "test"}'}
-                  onChange={(e) => updateNodeData(selectedNode.id, { testInput: e.target.value })}
-                />
-              </div>
-              
-              <div className="flex gap-2">
-                <Button size="sm" className="flex-1 text-xs">
-                  {selectedNode.type === 'get' ? 'Test Get' : 'Test Set'}
-                </Button>
-                <Button size="sm" variant="outline" className="text-xs">
-                  Debug
-                </Button>
-              </div>
-
-              <div className="text-xs">
-                <div className="text-muted-foreground">Kết quả test:</div>
-                <div className="bg-muted p-2 rounded mt-1 font-mono text-xs">
-                  {selectedNode.type === 'get' 
-                    ? '{"status": "success", "data": "sample_value", "time": "12ms"}'
-                    : '{"status": "success", "written": true, "time": "8ms"}'
-                  }
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Monitoring & Logs */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Monitoring & Logs</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Lần thực thi:</span>
-                  <div className="font-medium">1,456</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Thành công:</span>
-                  <div className="font-medium text-green-600">98.2%</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Avg time:</span>
-                  <div className="font-medium">15ms</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Lỗi:</span>
-                  <div className="font-medium text-red-600">1.8%</div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="enable-logging"
-                  checked={(selectedNode.data as any)?.enableLogging ?? true}
-                  onChange={(e) => updateNodeData(selectedNode.id, { enableLogging: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <label htmlFor="enable-logging" className="text-xs">Bật logging chi tiết</label>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">Log level</label>
-                <select 
-                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
-                  value={(selectedNode.data as any)?.logLevel ?? 'info'}
-                  onChange={(e) => updateNodeData(selectedNode.id, { logLevel: e.target.value })}
-                >
-                  <option value="debug">Debug</option>
-                  <option value="info">Info</option>
-                  <option value="warn">Warning</option>
-                  <option value="error">Error Only</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* API Integration (Optional) */}
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">API Integration (tùy chọn)</label>
-            <Input
-              value={apiDraft}
-              placeholder="VD: https://api.yourdomain.com/data-endpoint"
-              onChange={(e) => setApiDraft(e.target.value)}
-              onBlur={() => {
-                if (!selectedNode) return
-                updateNodeData(selectedNode.id, { api: apiDraft.trim() })
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { api: apiDraft.trim() })
-                if (e.key === 'Escape') setApiDraft(((selectedNode?.data as any)?.api ?? '') as string)
-              }}
-            />
-          </div>
-
-          {/* Webhook Integration (Optional) */}
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Webhook Integration (tùy chọn)</label>
-            <Input
-              value={webhookDraft}
-              placeholder="VD: https://hooks.yourdomain.com/on-data-change"
-              onChange={(e) => setWebhookDraft(e.target.value)}
-              onBlur={() => {
-                if (!selectedNode) return
-                updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && selectedNode) updateNodeData(selectedNode.id, { webhook: webhookDraft.trim() })
-                if (e.key === 'Escape') setWebhookDraft(((selectedNode?.data as any)?.webhook ?? '') as string)
-              }}
-            />
-          </div>
+      {selectedNode?.type === 'set' ? (
+        <div className="mt-4 space-y-4">
+          <IntegrationSection description="Khai báo API hoặc truy vấn database để ghi dữ liệu tới hệ thống." />
         </div>
       ) : null}
 

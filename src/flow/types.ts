@@ -14,6 +14,7 @@ export type AlgoNodeType =
   | 'and'
   | 'or'
   | 'comment'
+  | 'status'
 
 // Node state within a workflow execution
 export type NodeStatus = 
@@ -62,6 +63,18 @@ export type AlgoNodeData = {
   // New fields for stateful nodes
   requiredInputs?: number  // Number of inputs required for AND/OR nodes
   approvalMode?: 'any' | 'all'  // For approve trigger nodes: any = any user can approve, all = all users must approve
+  // Status node specific fields
+  statusColor?: string
+  // Integration configuration shared by nodes
+  integrationSource?: 'api' | 'database'
+  integrationApiMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  integrationApiUrl?: string
+  integrationApiHeaders?: string
+  integrationApiBody?: string
+  integrationDbConnection?: string
+  integrationDbQuery?: string
+  integrationDbParams?: string
+  integrationEnabled?: boolean
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>
