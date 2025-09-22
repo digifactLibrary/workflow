@@ -361,7 +361,7 @@ export const useFlowStore = create<FlowState>()(
           (edge as any).markerEnd = markerEnd;
         }
         
-        const prev = { nodes: s.nodes, edges: s.edges }
+        //const prev = { nodes: s.nodes, edges: s.edges }
         flushPending(s.history)
         const prev = captureDiagram(s)
         const edges = addEdge(edge as any, s.edges as any) as unknown as AlgoEdge[]
