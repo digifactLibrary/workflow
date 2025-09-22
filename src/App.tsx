@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
   Background,
   Controls,
+  ControlButton,
   MiniMap,
   ReactFlow,
   useReactFlow,
@@ -15,6 +16,7 @@ import {
 import { SelectionMode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './index.css'
+import { Expand, Minimize } from 'lucide-react'
 
 import StartNode from './flow/nodes/StartNode'
 import EndNode from './flow/nodes/EndNode'
@@ -63,6 +65,8 @@ export default function App() {
   const showDashboard = useWorkspaceStore((s) => s.ui.showDashboard)
   const showPalette = useWorkspaceStore((s) => s.ui.showPalette)
   const showDetailBar = useWorkspaceStore((s) => s.ui.showDetailBar)
+  const canvasFullscreen = useWorkspaceStore((s) => s.ui.canvasFullscreen)
+  const toggleCanvasFullscreen = useWorkspaceStore((s) => s.toggleCanvasFullscreen)
   const activeId = useWorkspaceStore((s) => s.activeId)
   const saveActiveFromFlow = useWorkspaceStore((s) => s.saveActiveFromFlow)
   const loadAll = useWorkspaceStore((s) => s.loadAll)
@@ -134,6 +138,24 @@ export default function App() {
 
   const { screenToFlowPosition } = useReactFlow()
   const dropRef = useRef<HTMLDivElement>(null)
+  const bodyOverflowRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    if (bodyOverflowRef.current === undefined) {
+      bodyOverflowRef.current = document.body.style.overflow
+    }
+    if (canvasFullscreen) {
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = bodyOverflowRef.current ?? ''
+      }
+    }
+    document.body.style.overflow = bodyOverflowRef.current ?? ''
+    return () => {
+      document.body.style.overflow = bodyOverflowRef.current ?? ''
+    }
+  }, [canvasFullscreen])
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -182,11 +204,15 @@ export default function App() {
     return <Dashboard />
   }
 
+  const shellClassName = canvasFullscreen
+    ? 'fixed inset-0 z-50 flex h-screen w-screen bg-background'
+    : 'flex h-screen'
+
   return (
-    <div className="flex h-screen">
-      {showPalette && <Palette />}
+    <div className={shellClassName}>
+      {!canvasFullscreen && showPalette && <Palette />}
       <div className="flex-1 flex flex-col">
-        <Topbar />
+        {!canvasFullscreen && <Topbar />}
         <div className="flex-1 flex">
           <div ref={dropRef} className="flex-1">
             <ReactFlow
@@ -237,13 +263,27 @@ export default function App() {
           >
             <Background color="#e2e8f0" gap={24} />
             <MiniMap zoomable pannable className="!bg-white/70" />
-            <Controls />
+            <Controls showFitView={false}>
+              <ControlButton
+                className="react-flow__controls-fitview"
+                onClick={() => toggleCanvasFullscreen()}
+                title={canvasFullscreen ? 'Thoát chế độ toàn màn hình' : 'Phóng to canvas'}
+                aria-label={canvasFullscreen ? 'Thoát chế độ toàn màn hình' : 'Phóng to canvas'}
+                aria-pressed={canvasFullscreen}
+              >
+                {canvasFullscreen ? (
+                  <Minimize className="h-4 w-4" />
+                ) : (
+                  <Expand className="h-4 w-4" />
+                )}
+              </ControlButton>
+            </Controls>
             <Panel position="top-left" className="m-2 rounded-md border bg-background/80 p-2 shadow">
               <div className="text-xs text-muted-foreground">Kéo thả để thêm node • Nối các điểm handle để tạo liên kết</div>
             </Panel>
             </ReactFlow>
           </div>
-          {showDetailBar ? <DetailBar /> : null}
+          {!canvasFullscreen && showDetailBar ? <DetailBar /> : null}
         </div>
       </div>
       {contextMenu ? (

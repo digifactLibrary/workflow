@@ -19,7 +19,7 @@ type WorkspaceState = {
   diagrams: Record<string, DiagramMeta>
   order: string[]
   activeId?: string
-  ui: { showDashboard: boolean; showPalette: boolean; showDetailBar: boolean }
+  ui: { showDashboard: boolean; showPalette: boolean; showDetailBar: boolean; canvasFullscreen: boolean }
   loaded: boolean
   loadAll: () => Promise<void>
   create: (name?: string, initial?: DiagramData) => Promise<string>
@@ -31,6 +31,7 @@ type WorkspaceState = {
   toggleDashboard: (v?: boolean) => void
   togglePalette: (v?: boolean) => void
   toggleDetailBar: (v?: boolean) => void
+  toggleCanvasFullscreen: (v?: boolean) => void
 }
 
 // Helper function to convert diagram data to objects and connections
@@ -76,7 +77,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   diagrams: {},
   order: [],
   activeId: undefined,
-  ui: { showDashboard: true, showPalette: true, showDetailBar: false },
+  ui: { showDashboard: true, showPalette: true, showDetailBar: false, canvasFullscreen: false },
   loaded: false,
 
   loadAll: async () => {
@@ -261,4 +262,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   toggleDashboard: (v) => set((s) => ({ ui: { ...s.ui, showDashboard: typeof v === 'boolean' ? v : !s.ui.showDashboard } })),
   togglePalette: (v) => set((s) => ({ ui: { ...s.ui, showPalette: typeof v === 'boolean' ? v : !s.ui.showPalette } })),
   toggleDetailBar: (v) => set((s) => ({ ui: { ...s.ui, showDetailBar: typeof v === 'boolean' ? v : !s.ui.showDetailBar } })),
+  toggleCanvasFullscreen: (v) =>
+    set((s) => ({ ui: { ...s.ui, canvasFullscreen: typeof v === 'boolean' ? v : !s.ui.canvasFullscreen } })),
 }))
