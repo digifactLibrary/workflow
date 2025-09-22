@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Input } from '../components/ui/input'
 import { cn } from '../lib/utils'
 import { useFlowStore } from '../state/flowStore'
+import { useReactFlow } from '@xyflow/react'
 
 export default function NodeLabel({ id, value, className, placeholder }: { id: string; value?: string; className?: string; placeholder?: string }) {
   const update = useFlowStore((s) => s.updateNodeData)
@@ -9,8 +10,13 @@ export default function NodeLabel({ id, value, className, placeholder }: { id: s
   const setEditingNode = useFlowStore((s) => s.setEditingNode)
   const [text, setText] = useState(value ?? '')
   const ref = useRef<HTMLInputElement>(null)
+  const { getNode } = useReactFlow()
 
   const editing = editingNodeId === id
+  
+  // Check if node is read-only
+  const node = getNode(id)
+  const isReadOnly = node?.data?.isReadOnly || false
 
   useEffect(() => setText(value ?? ''), [value])
   useEffect(() => {
@@ -21,12 +27,13 @@ export default function NodeLabel({ id, value, className, placeholder }: { id: s
   }, [editing, value])
 
   const commit = () => {
+    if (isReadOnly) return // Don't allow updates in read-only mode
     const label = text.trim() === '' ? (placeholder ?? '') : text
     update(id, { label })
     setEditingNode(undefined)
   }
 
-  if (editing) {
+  if (editing && !isReadOnly) {
     return (
       <Input
         ref={ref}
@@ -47,8 +54,9 @@ export default function NodeLabel({ id, value, className, placeholder }: { id: s
 
   return (
     <span
-      className={cn('cursor-text', className)}
+      className={cn(isReadOnly ? 'cursor-default' : 'cursor-text', className)}
       onDoubleClick={() => {
+        if (isReadOnly) return // Don't allow editing in read-only mode
         setText(value ?? '')
         setEditingNode(id)
       }}

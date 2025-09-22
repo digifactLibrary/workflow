@@ -4,6 +4,7 @@ import { useOptionsStore } from '../state/optionsStore'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
+import { Badge } from './ui/badge'
 import { Switch } from './ui/switch'
 import { PlusCircle, Send, Pencil, Trash2, Archive, ArchiveRestore, CheckCircle2, XCircle, Mail, Bell, MessageSquareText, RefreshCw, Plus, Check } from 'lucide-react'
 import type { AlgoNodeData } from '../flow/types'
@@ -255,6 +256,19 @@ export function DetailBar() {
     const nq = normalize(q)
     return triggerModuleOptions.filter((m) => normalize(m.label || '').includes(nq))
   }, [moduleQuery, triggerModuleOptions])
+  
+  // Set initial module query when node changes
+  useEffect(() => {
+    if (selectedNode?.type === 'trigger') {
+      const selectedModuleValue = (selectedNode.data as any)?.triggerModules?.[0];
+      if (selectedModuleValue) {
+        const moduleLabel = triggerModuleOptions.find(opt => opt.value === selectedModuleValue)?.label || '';
+        setModuleQuery(moduleLabel);
+      } else {
+        setModuleQuery('');
+      }
+    }
+  }, [selectedNode?.id, selectedNode?.type, triggerModuleOptions]);
 
   const filteredHumanPeople = useMemo(() => {
     const q = humanPersonQuery.trim()
@@ -339,34 +353,6 @@ export function DetailBar() {
     const current: string[] = ((selectedNode.data as any)?.triggerEvents ?? []) as string[]
     const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
     updateNodeData(selectedNode.id, { triggerEvents: next })
-  }
-
-  const toggleTriggerModule = (name: string) => {
-    if (!selectedNode) return
-    const selectedOption = triggerModuleOptions.find(opt => opt.value === name)
-  
-    const current: string[] = ((selectedNode.data as any)?.triggerModules ?? []) as string[]
-    const currentIds: string[] = ((selectedNode.data as any)?.mappingIds ?? []) as string[]
-    
-    if (current.includes(name)) {
-      // Xóa khỏi danh sách
-      const newModules = current.filter((x) => x !== name)
-      const newIds = currentIds.filter((_, index) => current[index] !== name)
-      
-      updateNodeData(selectedNode.id, { 
-        triggerModules: newModules,
-        mappingIds: newIds 
-      })
-    } else {
-      // Thêm vào danh sách
-      const newModules = [...current, name]
-      const newIds = [...currentIds, selectedOption?.id || '']
-      
-      updateNodeData(selectedNode.id, { 
-        triggerModules: newModules,
-        mappingIds: newIds 
-      })
-    }
   }
 
   // Sử dụng useCallback để tránh tạo lại hàm này mỗi khi component re-render
@@ -679,15 +665,6 @@ export function DetailBar() {
     updateNodeData(selectedNode.id, { sendKinds: [] })
   }
 
-  const selectAllModules = () => {
-    if (!selectedNode) return
-    updateNodeData(selectedNode.id, { triggerModules: triggerModuleOptions.map(m => m.value) })
-  }
-  const clearAllModules = () => {
-    if (!selectedNode) return
-    updateNodeData(selectedNode.id, { triggerModules: [] })
-  }
-
   if (!selectedNode && !selectedEdge) return null
   // Hide DetailBar for Start/End/And/Or nodes
   if (selectedNode && (selectedNode.type === 'start' || selectedNode.type === 'end' || selectedNode.type === 'and' || selectedNode.type === 'or')) return null
@@ -963,28 +940,107 @@ export function DetailBar() {
             onClearAll={clearAllTriggerEvents}
             className="max-h-48"
           />
+          
+          {/* Approval Mode Combobox - Only visible when approve event is selected */}
+          {((selectedNode.data as any)?.triggerEvents || []).includes('approve') && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium">Chế độ phê duyệt</div>
+              <div className="relative">
+                <div className="relative w-full">
+                  <select 
+                    className="w-full appearance-none px-3 py-2 text-sm border border-input rounded-md bg-background pr-8"
+                    value={(selectedNode.data as any)?.approvalMode || 'any'}
+                    onChange={(e) => updateNodeData(selectedNode.id, { approvalMode: e.target.value as 'any' | 'all' })}
+                  >
+                    <option value="any">Bất kỳ</option>
+                    <option value="all">Tất cả</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                    <svg className="h-4 w-4 opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {(selectedNode.data as any)?.approvalMode === 'all' 
+                  ? 'Tất cả người dùng phải phê duyệt để node này hoàn thành' 
+                  : 'Chỉ cần một người phê duyệt để node này hoàn thành'}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
-            <ToggleButtonsPanel
-              title="Module hoạt động"
-              options={filteredModules.map(opt => ({ value: opt.value, label: opt.label }))}
-              selectedValues={(selectedNode.data as any)?.triggerModules ?? []}
-              onToggle={toggleTriggerModule}
-              onSelectAll={selectAllModules}
-              onClearAll={clearAllModules}
-              className="max-h-28"
-              searchBox={
-                <Input
-                  value={moduleQuery}
-                  placeholder="Tìm kiếm module..."
-                  onChange={(e) => setModuleQuery(e.target.value)}
-                  className="mb-2 mt-1"
-                />
-              }
-            />
-            {filteredModules.length === 0 ? (
-              <div className="text-xs text-muted-foreground">Không có kết quả</div>
-            ) : null}
+            <div className="text-xs font-medium">Module hoạt động</div>
+            <div className="relative">
+              <div className="flex w-full items-center space-x-2">
+                <div className="relative w-full">
+                  <input
+                    type="text" 
+                    className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background pr-8"
+                    placeholder="Tìm kiếm và chọn module..."
+                    value={moduleQuery}
+                    onChange={(e) => setModuleQuery(e.target.value)}
+                    onFocus={() => document.getElementById('module-options')?.classList.remove('hidden')}
+                    onBlur={() => {
+                      // Delay để cho phép click event xảy ra trước khi ẩn danh sách
+                      setTimeout(() => {
+                        document.getElementById('module-options')?.classList.add('hidden');
+                      }, 200);
+                    }}
+                  />
+                  {moduleQuery && (
+                    <button 
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      onClick={() => setModuleQuery('')}
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div 
+                id="module-options"
+                className="absolute z-10 w-full mt-1 bg-white border border-input rounded-md shadow-lg max-h-40 overflow-auto hidden"
+              >
+                {filteredModules.length > 0 ? (
+                  filteredModules.map(opt => (
+                    <div
+                      key={opt.value}
+                      className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
+                        (selectedNode.data as any)?.triggerModules?.[0] === opt.value ? 'bg-muted' : ''
+                      }`}
+                      onClick={() => {
+                        const selectedOption = triggerModuleOptions.find(o => o.value === opt.value);
+                        const moduleArray = opt.value ? [opt.value] : [];
+                        const mappingIdArray = opt.value ? [selectedOption?.id || ''] : [];
+                        updateNodeData(selectedNode.id, {
+                          triggerModules: moduleArray,
+                          mappingIds: mappingIdArray
+                        });
+                        setModuleQuery(opt.label); // Set the search field to the selected module name
+                        document.getElementById('module-options')?.classList.add('hidden');
+                      }}
+                    >
+                      {opt.label}
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">Không tìm thấy kết quả</div>
+                )}
+              </div>
+            </div>
+            
+            {/* Hiển thị module đã chọn */}
+            {(selectedNode.data as any)?.triggerModules?.[0] && moduleQuery === '' && (
+              <div className="mt-2 text-xs">
+                <span className="text-muted-foreground">Module đã chọn: </span>
+                <span className="font-medium">
+                  {triggerModuleOptions.find(opt => opt.value === (selectedNode.data as any)?.triggerModules?.[0])?.label || 'Unknown'}
+                </span>
+              </div>
+            )}
           </div>
 
           <IntegrationSection description="Khai báo API hoặc truy vấn database để kích hoạt trigger với dữ liệu chính xác." optional />
@@ -1148,31 +1204,16 @@ export function DetailBar() {
 
       {selectedNode?.type === 'decision' || selectedNode?.type === 'condition' ? (
         <div className="mt-4 space-y-4">
-          {/* Decision Logic Section */}
+          {/* Decision Logic Section - Simplified */}
           <div className="space-y-2">
-            <div className="text-xs font-medium">Logic điều kiện</div>
-            <div className="space-y-2">
-              <div>
-                <label className="text-xs text-muted-foreground">Loại điều kiện</label>
-                <select 
-                  className="w-full mt-1 px-3 py-2 text-xs border border-input rounded-md bg-background"
-                  value={(selectedNode.data as any)?.conditionType ?? 'if-then-else'}
-                  onChange={(e) => updateNodeData(selectedNode.id, { conditionType: e.target.value })}
-                >
-                  <option value="if-then-else">If-Then-Else</option>
-                  <option value="switch-case">Switch-Case</option>
-                  <option value="rule-based">Rule-Based</option>
-                  <option value="expression">Expression</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">Biểu thức</label>
-                <Input
-                  value={(selectedNode.data as any)?.expression ?? ''}
-                  placeholder="VD: age > 18 && status == 'active'"
-                  onChange={(e) => updateNodeData(selectedNode.id, { expression: e.target.value })}
-                />
-              </div>
+            <div className="text-xs font-medium">Giá trị kiểm tra</div>
+            <Input
+              value={(selectedNode.data as any)?.conditionValue ?? ''}
+              placeholder="Nhập giá trị để so sánh..."
+              onChange={(e) => updateNodeData(selectedNode.id, { conditionValue: e.target.value })}
+            />
+            <div className="text-xs text-muted-foreground">
+              Nếu input = giá trị kiểm tra thì đi nhánh "Có", ngược lại đi nhánh "Không"
             </div>
           </div>
 
@@ -1188,12 +1229,6 @@ export function DetailBar() {
                 <span className="text-muted-foreground">Đầu ra:</span>
                 <span className="font-medium">{edges.filter(e => e.source === selectedNode.id).length} kết nối</span>
               </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Coverage:</span>
-                <span className="font-medium text-green-600">
-                  {edges.filter(e => e.source === selectedNode.id).length > 0 ? '100%' : '0%'}
-                </span>
-              </div>
             </div>
           </div>
 
@@ -1201,147 +1236,21 @@ export function DetailBar() {
           <div className="space-y-2">
             <div className="text-xs font-medium">Quy tắc định tuyến</div>
             <div className="space-y-2">
-              {edges.filter(e => e.source === selectedNode.id).map((edge, index) => {
-                const targetNode = nodes.find(n => n.id === edge.target)
-                return (
-                  <div key={edge.id} className="border rounded-lg p-2 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">Route {index + 1}</span>
-                      <Button size="sm" variant="ghost" className="h-6 px-2 text-xs">
-                        Chỉnh sửa
-                      </Button>
-                    </div>
-                    <div className="space-y-1">
-                      <div>
-                        <label className="text-xs text-muted-foreground">Điều kiện:</label>
-                        <Input
-                          className="mt-1"
-                          placeholder="Khi điều kiện đúng/sai"
-                          value={(edge.data as any)?.condition ?? ''}
-                          onChange={(e) => updateEdgeData(edge.id, { condition: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Đích đến:</label>
-                        <div className="text-xs bg-muted px-2 py-1 rounded mt-1">
-                          {targetNode?.data?.label || targetNode?.type || 'Unknown'}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Độ ưu tiên:</label>
-                        <Input
-                          type="number"
-                          className="mt-1"
-                          value={(edge.data as any)?.priority ?? index + 1}
-                          onChange={(e) => updateEdgeData(edge.id, { priority: parseInt(e.target.value) || index + 1 })}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-              {edges.filter(e => e.source === selectedNode.id).length === 0 && (
-                <div className="text-xs text-muted-foreground text-center py-4">
-                  Chưa có route nào được định nghĩa
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Validation & Testing */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Kiểm tra & Test</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div className="space-y-1">
-                <div className={`flex items-center gap-2 text-xs ${
-                  edges.filter(e => e.source === selectedNode.id).length >= 2 ? 'text-green-600' : 'text-yellow-600'
-                }`}>
-                  <span className="text-lg">
-                    {edges.filter(e => e.source === selectedNode.id).length >= 2 ? '✓' : '⚠'}
-                  </span>
-                  <span>Có nhiều lựa chọn đầu ra</span>
-                </div>
-                <div className={`flex items-center gap-2 text-xs ${
-                  edges.filter(e => e.target === selectedNode.id).length > 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  <span className="text-lg">
-                    {edges.filter(e => e.target === selectedNode.id).length > 0 ? '✓' : '✗'}
-                  </span>
-                  <span>Có kết nối đầu vào</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-green-600">
-                  <span className="text-lg">✓</span>
-                  <span>Biểu thức logic hợp lệ</span>
+              <div className="border rounded-lg p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Nếu input = giá trị kiểm tra</span>
+                  <Badge variant="secondary" className="bg-green-100 text-green-800">Có</Badge>
                 </div>
               </div>
-              
-              <Separator />
-              
-              <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">Test Input:</label>
-                <Input
-                  placeholder="Nhập giá trị test"
-                  value={(selectedNode.data as any)?.testInput ?? ''}
-                  onChange={(e) => updateNodeData(selectedNode.id, { testInput: e.target.value })}
-                />
-                <Button size="sm" className="w-full text-xs">
-                  Test Decision
-                </Button>
-                <div className="text-xs">
-                  <span className="text-muted-foreground">Kết quả dự kiến: </span>
-                  <span className="font-medium text-blue-600">Route 1 (True branch)</span>
+              <div className="border rounded-lg p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Nếu input ≠ giá trị kiểm tra</span>
+                  <Badge variant="secondary" className="bg-red-100 text-red-800">Không</Badge>
                 </div>
               </div>
             </div>
           </div>
-
-          {/* Performance Metrics */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium">Metrics hiệu suất</div>
-            <div className="border rounded-lg p-3 space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Thời gian thực thi:</span>
-                  <div className="font-medium">~2ms avg</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Tỷ lệ thành công:</span>
-                  <div className="font-medium text-green-600">98.5%</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Tỷ lệ lỗi:</span>
-                  <div className="font-medium text-red-600">1.5%</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Lần thực thi:</span>
-                  <div className="font-medium">1,234</div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div>
-                <div className="text-xs font-medium mb-2">Phân phối nhánh</div>
-                {edges.filter(e => e.source === selectedNode.id).map((edge, index) => {
-                  const percentage = Math.floor(Math.random() * 100)
-                  const targetNode = nodes.find(n => n.id === edge.target)
-                  return (
-                    <div key={edge.id} className="flex items-center gap-2 text-xs mb-1">
-                      <span className="w-12 text-muted-foreground">Route {index + 1}:</span>
-                      <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 transition-all duration-300" 
-                          style={{width: `${percentage}%`}}
-                        />
-                      </div>
-                      <span className="w-8 text-right font-medium">{percentage}%</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
+          
           {/* Connected Nodes Overview */}
           <div className="space-y-2">
             <div className="text-xs font-medium">Nodes được kết nối</div>
