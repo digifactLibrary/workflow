@@ -44,14 +44,16 @@ export type AlgoNodeData = {
   humanRolePeopleInitialized?: boolean
   // Status node specific fields
   statusColor?: string
-  statusInputSource?: 'api' | 'database'
-  statusApiMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
-  statusApiUrl?: string
-  statusApiHeaders?: string
-  statusApiBody?: string
-  statusDbConnection?: string
-  statusDbQuery?: string
-  statusDbParams?: string
+  // Integration configuration shared by nodes
+  integrationSource?: 'api' | 'database'
+  integrationApiMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  integrationApiUrl?: string
+  integrationApiHeaders?: string
+  integrationApiBody?: string
+  integrationDbConnection?: string
+  integrationDbQuery?: string
+  integrationDbParams?: string
+  integrationEnabled?: boolean
 }
 
 export type AlgoNode = Node<AlgoNodeData, AlgoNodeType>

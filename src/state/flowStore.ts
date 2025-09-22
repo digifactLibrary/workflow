@@ -276,12 +276,30 @@ export const useFlowStore = create<FlowState>()(
           type: t,
           position: pos,
           ...(((defaults as any)[t]) ?? (
-            t === 'trigger' ? { data: { label: 'Trigger' }, width: 180, height: 56 } :
+            t === 'trigger'
+              ? { data: { label: 'Trigger', integrationSource: 'api', integrationApiMethod: 'GET', integrationApiUrl: '', integrationApiHeaders: '', integrationApiBody: '', integrationDbConnection: '', integrationDbQuery: '', integrationDbParams: '', integrationEnabled: false }, width: 180, height: 56 } :
             t === 'send' ? { data: { label: 'Send Message' }, width: 200, height: 56 } :
             t === 'human' ? { data: { label: 'Human' }, width: 180, height: 56 } :
             t === 'condition' ? { data: { label: 'Condition' }, width: 180, height: 120 } :
-            t === 'get' ? { data: { label: 'Get Value' }, width: 200, height: 56 } :
-            t === 'set' ? { data: { label: 'Set Value' }, width: 200, height: 56 } :
+            t === 'get'
+              ? { data: { label: 'Get Value', integrationSource: 'api', integrationApiMethod: 'GET', integrationApiUrl: '', integrationApiHeaders: '', integrationApiBody: '', integrationDbConnection: '', integrationDbQuery: '', integrationDbParams: '', integrationEnabled: true }, width: 200, height: 56 } :
+            t === 'set'
+              ? {
+                  data: {
+                    label: 'Set Value',
+                    integrationSource: 'api',
+                    integrationApiMethod: 'GET',
+                    integrationApiUrl: '',
+                    integrationApiHeaders: '',
+                    integrationApiBody: '',
+                    integrationDbConnection: '',
+                    integrationDbQuery: '',
+                    integrationDbParams: '',
+                    integrationEnabled: true,
+                  },
+                  width: 200,
+                  height: 56,
+                } :
             t === 'and' ? { data: { label: 'AND' }, width: 48, height: 24 } :
             t === 'or' ? { data: { label: 'OR' }, width: 48, height: 24 } :
             t === 'comment' ? { data: { label: 'Comment' } } :
@@ -290,14 +308,15 @@ export const useFlowStore = create<FlowState>()(
                   data: {
                     label: 'Status',
                     statusColor: '#22c55e',
-                    statusInputSource: 'api',
-                    statusApiMethod: 'GET',
-                    statusApiUrl: '',
-                    statusApiHeaders: '',
-                    statusApiBody: '',
-                    statusDbConnection: '',
-                    statusDbQuery: '',
-                    statusDbParams: '',
+                    integrationSource: 'api',
+                    integrationApiMethod: 'GET',
+                    integrationApiUrl: '',
+                    integrationApiHeaders: '',
+                    integrationApiBody: '',
+                    integrationDbConnection: '',
+                    integrationDbQuery: '',
+                    integrationDbParams: '',
+                    integrationEnabled: false,
                   },
                 }
               :
