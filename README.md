@@ -1,8 +1,6 @@
 # Workflow Diagram Manager
 
 Ứng dụng quản lý sơ đồ workflow với React Flow, Node.js và PostgreSQL.
-
-
 ## Cấu trúc Database
 
 ### Bảng chính
