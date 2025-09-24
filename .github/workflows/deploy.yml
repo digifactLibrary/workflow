@@ -1,0 +1,19 @@
+name: Deployment
+
+on:
+  push:
+    branches: [ "main" ]   # đổi nếu bạn deploy từ nhánh khác
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and run /root/workflowscript
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}   # root
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            /bin/bash -lc '/root/workflowscript'
