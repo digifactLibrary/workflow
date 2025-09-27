@@ -5,6 +5,14 @@ import { useFlowStore } from './flowStore'
 
 export type DiagramData = { nodes: AlgoNode[]; edges: AlgoEdge[] }
 
+export type DiagramDetails = {
+  // Diagram-level active module and its mapping id
+  triggerModule?: string
+  mappingId?: string
+  // Approval required for the whole diagram (Có/Không)
+  approval?: boolean
+}
+
 export type DiagramMeta = {
   id: string
   name: string
@@ -13,6 +21,8 @@ export type DiagramMeta = {
   // Instead of storing data directly, we now have objects and connections
   objects: DiagramObject[]
   connections: DiagramConnection[]
+  // Optional diagram-level details
+  details?: DiagramDetails
 }
 
 type WorkspaceState = {
@@ -32,6 +42,7 @@ type WorkspaceState = {
   togglePalette: (v?: boolean) => void
   toggleDetailBar: (v?: boolean) => void
   toggleCanvasFullscreen: (v?: boolean) => void
+  setDiagramDetails: (details: Partial<DiagramDetails>) => void
 }
 
 // Helper function to convert diagram data to objects and connections
@@ -171,7 +182,12 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
           createdAt, 
           updatedAt, 
           objects, 
-          connections 
+          connections,
+          // Extract diagram-level details from dedicated columns; fall back to legacy data.details if present
+          details: {
+            triggerModule: (response as any)?.activeModule ?? (response?.data as any)?.details?.triggerModule ?? s.diagrams[id]?.details?.triggerModule,
+            approval: (response as any)?.approval ?? (response?.data as any)?.details?.approval ?? s.diagrams[id]?.details?.approval,
+          }
         } 
       },
       activeId: id,
@@ -239,11 +255,12 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     const { activeId, diagrams } = get()
     if (!activeId || !diagrams[activeId]) return
     const { nodes, edges } = useFlowStore.getState()
+    const details = diagrams[activeId]?.details
     const res = await fetch(`/api/diagrams/${activeId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ data: { nodes, edges } }),
+      body: JSON.stringify({ data: { nodes, edges }, activeModule: details?.triggerModule ?? null, approval: typeof details?.approval === 'boolean' ? details?.approval : null }),
     })
     if (!res.ok) return
     const r = (await res.json()) as { updatedAt: string | number }
@@ -264,4 +281,27 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   toggleDetailBar: (v) => set((s) => ({ ui: { ...s.ui, showDetailBar: typeof v === 'boolean' ? v : !s.ui.showDetailBar } })),
   toggleCanvasFullscreen: (v) =>
     set((s) => ({ ui: { ...s.ui, canvasFullscreen: typeof v === 'boolean' ? v : !s.ui.canvasFullscreen } })),
+  setDiagramDetails: (details) => set((s) => {
+    const id = s.activeId
+    if (!id || !s.diagrams[id]) return {}
+    const prev = s.diagrams[id].details || {}
+    const next = { ...prev, ...details }
+    const update = {
+      diagrams: {
+        ...s.diagrams,
+        [id]: { ...s.diagrams[id], details: next },
+      },
+    }
+    // Trigger autosave if enabled
+    try {
+      const autosave = useFlowStore.getState().autosave
+      if (autosave) {
+        // Defer to next tick to avoid nested set warnings
+        setTimeout(() => {
+          get().saveActiveFromFlow()
+        }, 0)
+      }
+    } catch {}
+    return update
+  }),
 }))

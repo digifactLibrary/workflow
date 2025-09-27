@@ -88,6 +88,8 @@ export interface Diagram {
   name: string;
   createdAt: string;
   updatedAt: string;
+  activeModule?: string;
+  approval?: boolean;
   data?: {
     nodes: any[];
     edges: any[];
@@ -111,7 +113,7 @@ export async function createDiagram(name: string, data?: any): Promise<Diagram> 
   });
 }
 
-export async function updateDiagram(id: string, updates: { name?: string; data?: any }): Promise<Diagram> {
+export async function updateDiagram(id: string, updates: { name?: string; data?: any; activeModule?: string | null; approval?: boolean | null }): Promise<Diagram> {
   return fetchAPI<Diagram>(`/diagrams/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),

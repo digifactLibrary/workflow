@@ -2,7 +2,7 @@ import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useFlowStore } from '../state/flowStore'
-import { Undo2, Redo2, Upload, Download, LayoutGrid, PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-react'
+import { Undo2, Redo2, Upload, Download, LayoutGrid, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, LogOut } from 'lucide-react'
 import { Switch } from './ui/switch'
 import { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../state/workspaceStore'
@@ -25,6 +25,8 @@ export function Topbar() {
   const nodes = useFlowStore((s) => s.nodes)
   const edges = useFlowStore((s) => s.edges)
   const logout = useAuthStore((s) => s.logout)
+  const showDetailBar = useWorkspaceStore((s) => s.ui.showDetailBar)
+  const toggleDetailBar = useWorkspaceStore((s) => s.toggleDetailBar)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
@@ -195,6 +197,23 @@ export function Topbar() {
               </TooltipContent>
             </Tooltip>
 
+            {/* Detail Bar toggle - placed next to Redo */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={() => toggleDetailBar()} size="sm" variant="outline">
+                  {showDetailBar ? (
+                    <PanelRightClose className="h-4 w-4" />
+                  ) : (
+                    <PanelRightOpen className="h-4 w-4" />
+                  )}
+                  <span className="hidden xl:ml-2 xl:block">{showDetailBar ? 'Hide' : 'Show'} Details</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {showDetailBar ? 'Ẩn Detail Bar' : 'Hiện Detail Bar'}
+              </TooltipContent>
+            </Tooltip>
+
             <Separator className="mx-1 md:mx-2 h-6 w-px" />
 
             <Tooltip>
@@ -258,7 +277,6 @@ export function Topbar() {
     </TooltipProvider>
   )
 }
-
 
 
 

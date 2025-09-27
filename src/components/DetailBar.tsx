@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFlowStore } from '../state/flowStore'
+import { useWorkspaceStore } from '../state/workspaceStore'
 import { useOptionsStore } from '../state/optionsStore'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
@@ -203,6 +204,8 @@ export function DetailBar() {
 
   const selectedNode = useMemo(() => (selection.nodeIds.length === 1 ? nodes.find((n) => n.id === selection.nodeIds[0]) : undefined), [selection, nodes])
   const selectedEdge = useMemo(() => (selection.edgeIds.length === 1 && selection.nodeIds.length === 0 ? edges.find((e) => e.id === selection.edgeIds[0]) : undefined), [selection, edges])
+  const activeDiagramDetails = useWorkspaceStore((s) => (s.activeId ? s.diagrams[s.activeId]?.details : undefined))
+  const setDiagramDetails = useWorkspaceStore((s) => s.setDiagramDetails)
 
   const [labelDraft, setLabelDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -665,7 +668,6 @@ export function DetailBar() {
     updateNodeData(selectedNode.id, { sendKinds: [] })
   }
 
-  if (!selectedNode && !selectedEdge) return null
   // Hide DetailBar for Start/End/And/Or nodes
   if (selectedNode && (selectedNode.type === 'start' || selectedNode.type === 'end' || selectedNode.type === 'and' || selectedNode.type === 'or')) return null
 
@@ -848,7 +850,7 @@ export function DetailBar() {
     )
   }
 
-  const title = selectedNode ? `Node: ${selectedNode.type}` : 'Edge'
+  const title = selectedNode ? `Node: ${selectedNode.type}` : selectedEdge ? 'Edge' : 'S\u01a1 \u0111\u1ed3'
 
   return (
     <div className="w-80 shrink-0 border-l bg-card/60 backdrop-blur p-3 h-full overflow-y-auto">
@@ -875,23 +877,121 @@ export function DetailBar() {
       </div>
       <Separator className="my-3" />
 
-      <div className="space-y-2">
-        <label className="text-xs text-muted-foreground">Nhãn (Label)</label>
-        <Input
-          ref={inputRef}
-          value={labelDraft}
-          placeholder={selectedNode ? 'Tên node' : 'Tên nhãn cho liên kết'}
-          onChange={(e) => setLabelDraft(e.target.value)}
-          onBlur={commitLabel}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitLabel()
-            if (e.key === 'Escape') {
-              if (selectedNode) setLabelDraft((selectedNode.data as any)?.label ?? '')
-              if (selectedEdge) setLabelDraft((selectedEdge.data as any)?.label ?? '')
-            }
-          }}
-        />
-      </div>
+      {(selectedNode || selectedEdge) && (
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground">Nhãn (Label)</label>
+          <Input
+            ref={inputRef}
+            value={labelDraft}
+            placeholder={selectedNode ? 'Tên node' : 'Tên nhãn cho liên kết'}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitLabel()
+              if (e.key === 'Escape') {
+                if (selectedNode) setLabelDraft((selectedNode.data as any)?.label ?? '')
+                if (selectedEdge) setLabelDraft((selectedEdge.data as any)?.label ?? '')
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {!selectedNode && !selectedEdge && (
+        <div className="mt-2 space-y-4">
+          {/* Diagram details: Module hoạt động */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Module hoạt động</div>
+            <div className="relative">
+              <div className="flex w-full items-center space-x-2">
+                <div className="relative w-full">
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background pr-8"
+                    placeholder="Tìm kiếm và chọn module..."
+                    value={moduleQuery}
+                    onChange={(e) => setModuleQuery(e.target.value)}
+                    onFocus={() => document.getElementById('diagram-module-options')?.classList.remove('hidden')}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        document.getElementById('diagram-module-options')?.classList.add('hidden');
+                      }, 200);
+                    }}
+                  />
+                  {moduleQuery && (
+                    <button
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      onClick={() => setModuleQuery('')}
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div
+                id="diagram-module-options"
+                className="absolute z-10 w-full mt-1 bg-white border border-input rounded-md shadow-lg max-h-40 overflow-auto hidden"
+              >
+                {filteredModules.length > 0 ? (
+                  filteredModules.map(opt => (
+                    <div
+                      key={opt.value}
+                      className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
+                        activeDiagramDetails?.triggerModule === opt.value ? 'bg-muted' : ''
+                      }`}
+                      onClick={() => {
+                        const selectedOption = triggerModuleOptions.find(o => o.value === opt.value);
+                        setDiagramDetails({ triggerModule: opt.value, mappingId: selectedOption?.id || '' })
+                        setModuleQuery(opt.label)
+                        document.getElementById('diagram-module-options')?.classList.add('hidden')
+                      }}
+                    >
+                      {opt.label}
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">Không tìm thấy kết quả</div>
+                )}
+              </div>
+            </div>
+            {(activeDiagramDetails?.triggerModule && moduleQuery === '') && (
+              <div className="mt-2 text-xs">
+                <span className="text-muted-foreground">Module đã chọn: </span>
+                <span className="font-medium">
+                  {triggerModuleOptions.find(opt => opt.value === activeDiagramDetails?.triggerModule)?.label || 'Unknown'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Diagram details: Phê duyệt */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium">Phê duyệt</div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={activeDiagramDetails?.approval ? 'default' : 'outline'}
+                className="h-8 px-3 text-xs"
+                onClick={() => setDiagramDetails({ approval: true })}
+              >
+                Có
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!activeDiagramDetails?.approval ? 'default' : 'outline'}
+                className="h-8 px-3 text-xs"
+                onClick={() => setDiagramDetails({ approval: false })}
+              >
+                Không
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+        </div>
+      )}
 
       {selectedNode?.type === 'status' ? (
         <div className="mt-4 space-y-4">
