@@ -140,7 +140,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       },
       order: [d.id, ...s.order],
       activeId: d.id,
-      ui: { ...s.ui, showDashboard: false },
+      ui: { ...s.ui, showDashboard: false, showDetailBar: true },
     }))
     useFlowStore.getState().setDiagram(initial, false)
     return d.id
@@ -191,7 +191,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
         } 
       },
       activeId: id,
-      ui: { ...s.ui, showDashboard: false },
+      ui: { ...s.ui, showDashboard: false, showDetailBar: true },
     }))
     useFlowStore.getState().setDiagram(diagramData, false)
   },
@@ -260,7 +260,11 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ data: { nodes, edges }, activeModule: details?.mappingId ?? null, approval: typeof details?.approval === 'boolean' ? details?.approval : null }),
+      body: JSON.stringify({ 
+        data: { nodes, edges }, 
+        activeModule: details?.mappingId ? parseInt(String(details.mappingId)) : null, 
+        approval: typeof details?.approval === 'boolean' ? details?.approval : null 
+      }),
     })
     if (!res.ok) return
     const r = (await res.json()) as { updatedAt: string | number }

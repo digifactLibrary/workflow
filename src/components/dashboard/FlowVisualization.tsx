@@ -28,7 +28,7 @@ const nodeTypes = [
 ];
 
 const FlowVisualization: React.FC<FlowVisualizationProps> = ({ nodeStatistics, edges = [] }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [viewMode, setViewMode] = useState<ViewMode>('flowchart');
   
   const getNodeTypeInfo = (nodeType: string) => {
     const nodeTypeInfo = nodeTypes.find(type => type.type === nodeType);
@@ -127,16 +127,16 @@ const FlowVisualization: React.FC<FlowVisualizationProps> = ({ nodeStatistics, e
                   >
                     <CardContent className="p-4">
                       {/* Node Header */}
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-2">
+                      <div className="flex items-start justify-between mb-3 gap-2">
+                        <div className="flex items-start space-x-2 flex-1 min-w-0">
                           <div
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-sm"
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0"
                             style={{ backgroundColor: nodeTypeInfo.color }}
                           >
                             {nodeTypeInfo.icon}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-sm truncate">
+                            <div className="font-semibold text-sm leading-tight break-words">
                               {nodeStats.nodeLabel || nodeStats.nodeType}
                             </div>
                             <div className="text-xs text-gray-500">
@@ -144,7 +144,7 @@ const FlowVisualization: React.FC<FlowVisualizationProps> = ({ nodeStatistics, e
                             </div>
                           </div>
                         </div>
-                        <div className="text-xl">
+                        <div className="text-xl shrink-0">
                           {getActivityIndicator(activityLevel)}
                         </div>
                       </div>

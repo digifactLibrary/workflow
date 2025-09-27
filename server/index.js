@@ -110,7 +110,7 @@ async function ensureSchema() {
   
   await db.query('CREATE INDEX IF NOT EXISTS cr07Bdiagrams_owner_id_idx ON section0.cr07Bdiagrams(owner_id)')
   // Diagram-level details columns
-  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS active_module TEXT')
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS active_module INTEGER')
   await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS approval BOOLEAN DEFAULT false')
   
   // Create notification table for in-app notifications
@@ -572,7 +572,7 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
     // Create main diagram record
     const r = await db.query(
       'INSERT INTO section0.cr07Bdiagrams (id, name, data, owner_id, active_module, approval) VALUES ($1, $2, $3, $4, $5, COALESCE($6, false)) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-      [id, name, data, req.userId, activeModule, approval]
+      [id, name, data, req.userId, activeModule ? parseInt(activeModule) : null, approval]
     )
     
     // Save to new format tables as well
@@ -596,7 +596,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     if (name !== undefined && data !== undefined) {
       const r = await db.query(
         'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, active_module=COALESCE($4, active_module), approval=COALESCE($5, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-        [id, String(name), data, activeModule ?? null, typeof approval === 'boolean' ? approval : null]
+        [id, String(name), data, activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -608,7 +608,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     if (name !== undefined) {
       const r = await db.query(
         'UPDATE section0.cr07Bdiagrams SET name=$2, active_module=COALESCE($3, active_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-        [id, String(name), activeModule ?? null, typeof approval === 'boolean' ? approval : null]
+        [id, String(name), activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       return res.json(r.rows[0])
@@ -616,7 +616,7 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     if (data !== undefined) {
       const r = await db.query(
         'UPDATE section0.cr07Bdiagrams SET data=$2, active_module=COALESCE($3, active_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-        [id, data, activeModule ?? null, typeof approval === 'boolean' ? approval : null]
+        [id, data, activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -627,8 +627,8 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     // Only diagram-level details updated
     const r = await db.query(
-      'UPDATE section0.cr07Bdiagrams SET active_module=COALESCE($2, active_module), approval=COALESCE($3, approval), updated_at=now() WHERE id=$1 AND owner_id=$4 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-      [id, activeModule ?? null, typeof approval === 'boolean' ? approval : null, req.userId]
+      'UPDATE section0.cr07Bdiagrams SET active_module=COALESCE($2, active_module), approval=COALESCE($3, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
+      [id, activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
     )
     if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
     return res.json(r.rows[0])
