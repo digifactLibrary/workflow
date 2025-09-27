@@ -109,6 +109,9 @@ async function ensureSchema() {
   await db.query('ALTER TABLE section0.cr07Bdiagrams ALTER COLUMN owner_id SET NOT NULL')
   
   await db.query('CREATE INDEX IF NOT EXISTS cr07Bdiagrams_owner_id_idx ON section0.cr07Bdiagrams(owner_id)')
+  // Diagram-level details columns
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS active_module TEXT')
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS approval BOOLEAN DEFAULT false')
   
   // Create notification table for in-app notifications
   await db.query(`
@@ -315,10 +318,10 @@ async function saveDiagramData(diagramId, data, ownerId = null) {
 }
 
 // Helper function to load diagram with objects and connections
-async function loadDiagramWithRelations(diagramId, ownerId = null) {
+async function loadDiagramWithRelations(diagramId) {
   // Get diagram metadata - temporarily show all diagrams
   const diagramResult = await db.query(
-    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM section0.cr07Bdiagrams WHERE id = $1',
+    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data, active_module as "activeModule", approval FROM section0.cr07Bdiagrams WHERE id = $1',
     [diagramId]
   )
   
@@ -399,7 +402,8 @@ async function loadDiagramWithRelations(diagramId, ownerId = null) {
     ...diagram,
     objects,
     connections,
-    data: { nodes, edges } // For backward compatibility
+    // Preserve original data (including any metadata) while ensuring nodes/edges are present
+    data: { ...(diagram.data || {}), nodes, edges }
   }
 }
 
@@ -562,11 +566,13 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
     const id = genId()
     const name = (req.body?.name || 'Sơ đồ mới').toString()
     const data = req.body?.data ?? { nodes: [], edges: [] }
+    const activeModule = req.body?.activeModule ?? null
+    const approval = typeof req.body?.approval === 'boolean' ? req.body.approval : null
     
     // Create main diagram record
     const r = await db.query(
-      'INSERT INTO section0.cr07Bdiagrams (id, name, data, owner_id) VALUES ($1, $2, $3, $4) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-      [id, name, data, req.userId]
+      'INSERT INTO section0.cr07Bdiagrams (id, name, data, owner_id, active_module, approval) VALUES ($1, $2, $3, $4, $5, COALESCE($6, false)) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
+      [id, name, data, req.userId, activeModule, approval]
     )
     
     // Save to new format tables as well
@@ -583,14 +589,14 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
 app.put('/api/diagrams/:id', authRequired, async (req, res) => {
   try {
     const { id } = req.params
-    const { name, data } = req.body || {}
-    if (name === undefined && data === undefined) {
+    const { name, data, activeModule, approval } = req.body || {}
+    if (name === undefined && data === undefined && activeModule === undefined && approval === undefined) {
       return res.status(400).json({ error: 'Nothing to update' })
     }
     if (name !== undefined && data !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-        [id, String(name), data]
+        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, active_module=COALESCE($4, active_module), approval=COALESCE($5, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
+        [id, String(name), data, activeModule ?? null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -601,16 +607,16 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (name !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET name=$2, updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-        [id, String(name)]
+        'UPDATE section0.cr07Bdiagrams SET name=$2, active_module=COALESCE($3, active_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
+        [id, String(name), activeModule ?? null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       return res.json(r.rows[0])
     }
     if (data !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET data=$2, updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-        [id, data]
+        'UPDATE section0.cr07Bdiagrams SET data=$2, active_module=COALESCE($3, active_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
+        [id, data, activeModule ?? null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -619,6 +625,13 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
       
       return res.json(r.rows[0])
     }
+    // Only diagram-level details updated
+    const r = await db.query(
+      'UPDATE section0.cr07Bdiagrams SET active_module=COALESCE($2, active_module), approval=COALESCE($3, approval), updated_at=now() WHERE id=$1 AND owner_id=$4 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
+      [id, activeModule ?? null, typeof approval === 'boolean' ? approval : null, req.userId]
+    )
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
+    return res.json(r.rows[0])
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to update diagram' })
