@@ -1334,7 +1334,7 @@ app.post('/api/message', async (req, res) => {
       const usersByRoleResult = await db.query(`
         SELECT id, email 
         FROM section9nhansu.ns01taikhoannguoidung 
-        WHERE recordidchucdanh = ANY($1) AND trangthai = 'Đang làm việc'
+        WHERE recordidchucdanh = ANY($1) AND status = 'Đang làm việc'
       `, [roleIdsArray]).catch(() => ({ rows: [] }));
       
       usersByRole = usersByRoleResult.rows;
@@ -1347,7 +1347,7 @@ app.post('/api/message', async (req, res) => {
       const usersByDirectIdResult = await db.query(`
         SELECT id, email 
         FROM section9nhansu.ns01taikhoannguoidung 
-        WHERE id = ANY($1) AND trangthai = 'Đang làm việc'
+        WHERE id = ANY($1) AND status = 'Đang làm việc'
       `, [humanIdsArray]).catch(() => ({ rows: [] }));
       
       usersByDirectId = usersByDirectIdResult.rows;
