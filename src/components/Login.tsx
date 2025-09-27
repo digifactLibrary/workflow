@@ -7,12 +7,12 @@ export default function Login() {
   const login = useAuthStore((s) => s.login)
   const loading = useAuthStore((s) => s.loading)
   const error = useAuthStore((s) => s.error)
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('') // Changed from email to username
   const [password, setPassword] = useState('')
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await login(email.trim(), password)
+    await login(username.trim(), password) // Changed from email to username
   }
 
   return (
@@ -20,17 +20,17 @@ export default function Login() {
       <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-sm">
         <div className="mb-6">
           <h1 className="text-xl font-semibold">Đăng nhập</h1>
-          <p className="text-sm text-muted-foreground mt-1">Vui lòng nhập email và mật khẩu</p>
+          <p className="text-sm text-muted-foreground mt-1">Vui lòng nhập email hoặc mã nhân viên và mật khẩu</p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm" htmlFor="email">Email</label>
+            <label className="text-sm" htmlFor="username">Email hoặc mã nhân viên</label>
             <Input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="username"
+              type="text"
+              placeholder="user@example.com hoặc NV001"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
             />
           </div>
@@ -42,7 +42,6 @@ export default function Login() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              minLength={4}
               required
             />
           </div>

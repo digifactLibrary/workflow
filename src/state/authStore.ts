@@ -3,9 +3,10 @@ import { useWorkspaceStore } from './workspaceStore'
 import { useFlowStore } from './flowStore'
 
 type User = {
-  id: string
+  id: number
   email: string
   name?: string | null
+  code?: string | null // manhanvien field
 }
 
 type AuthState = {
@@ -14,7 +15,7 @@ type AuthState = {
   loading: boolean
   error?: string
   bootstrap: () => Promise<void>
-  login: (email: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<void> // Changed from email to username
   logout: () => Promise<void>
 }
 
@@ -39,14 +40,14 @@ export const useAuthStore = create<AuthState>()((set) => ({
     }
   },
 
-  login: async (email: string, password: string) => {
+  login: async (username: string, password: string) => {
     set({ loading: true, error: undefined })
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, password }), // Changed from email to username
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))

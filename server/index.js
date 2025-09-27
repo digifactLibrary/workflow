@@ -50,7 +50,7 @@ async function ensureSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       data JSONB, -- Keep for backward compatibility
-      owner_id TEXT
+      owner_id INTEGER DEFAULT 1
     );
   `)
   
@@ -104,8 +104,10 @@ async function ensureSchema() {
   await db.query('CREATE UNIQUE INDEX IF NOT EXISTS cr07Cdiagram_objects_unique_node_per_diagram ON section0.cr07Cdiagram_objects(diagram_id, node_id)')
   await db.query('CREATE UNIQUE INDEX IF NOT EXISTS cr07Ddiagram_connections_unique_edge_per_diagram ON section0.cr07Ddiagram_connections(diagram_id, edge_id)')
   
-  // In case the table existed before owner_id field was introduced
-  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS owner_id TEXT')
+  // Ensure owner_id is INTEGER and has default value
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ALTER COLUMN owner_id SET DEFAULT 1')
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ALTER COLUMN owner_id SET NOT NULL')
+  
   await db.query('CREATE INDEX IF NOT EXISTS cr07Bdiagrams_owner_id_idx ON section0.cr07Bdiagrams(owner_id)')
   
   // Create notification table for in-app notifications
@@ -294,11 +296,11 @@ async function migrateSingleDiagram(diagramId, data) {
 }
 
 // Helper function to save diagram data to both formats (for compatibility)
-async function saveDiagramData(diagramId, data, ownerId) {
-  // Verify ownership
-  const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2', [diagramId, ownerId])
+async function saveDiagramData(diagramId, data, ownerId = null) {
+  // Temporarily skip ownership verification - allow access to all diagrams
+  const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id = $1', [diagramId])
   if (diagramCheck.rowCount === 0) {
-    throw new Error('Diagram not found or access denied')
+    throw new Error('Diagram not found')
   }
   
   // Clear existing objects and connections
@@ -313,11 +315,11 @@ async function saveDiagramData(diagramId, data, ownerId) {
 }
 
 // Helper function to load diagram with objects and connections
-async function loadDiagramWithRelations(diagramId, ownerId) {
-  // Get diagram metadata
+async function loadDiagramWithRelations(diagramId, ownerId = null) {
+  // Get diagram metadata - temporarily show all diagrams
   const diagramResult = await db.query(
-    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
-    [diagramId, ownerId]
+    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data FROM section0.cr07Bdiagrams WHERE id = $1',
+    [diagramId]
   )
   
   if (diagramResult.rowCount === 0) {
@@ -485,17 +487,18 @@ app.post('/api/auth/register', (_req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body || {}
-    if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
-    const normEmail = String(email).trim().toLowerCase()
-    const r = await db.query('SELECT id, email, name, password_hash FROM section0.cr07Ausers WHERE email=$1', [normEmail])
+    const { username, password } = req.body || {}
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
+    const normUsername = String(username).trim().toLowerCase()
+    const r = await db.query('SELECT id, email, hoten, matkhau FROM section9nhansu.ns01taikhoannguoidung WHERE email=$1 OR manhanvien=$1', [normUsername])
     if (r.rowCount === 0) return res.status(401).json({ error: 'Invalid credentials' })
     const u = r.rows[0]
-    const ok = await bcrypt.compare(String(password), u.password_hash)
+    //const ok = await bcrypt.compare(String(password), u.password_hash)
+    const ok = (password === u.matkhau); // Temporarily use plain text comparison
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
     const token = signToken(u.id)
     res.cookie('token', token, cookieOpts)
-    res.json({ id: u.id, email: u.email, name: u.name })
+    res.json({ id: u.id, email: u.email, name: u.hoten, code: u.manhanvien })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to login' })
@@ -513,22 +516,21 @@ app.get('/api/auth/me', async (req, res) => {
   try {
     const uid = getUserIdFromReq(req)
     if (!uid) return res.status(401).json({ error: 'Unauthorized' })
-    const r = await db.query('SELECT id, email, name FROM section0.cr07Ausers WHERE id=$1', [uid])
+    const r = await db.query('SELECT id, email, hoten, manhanvien FROM section9nhansu.ns01taikhoannguoidung WHERE id=$1', [uid])
     if (r.rowCount === 0) return res.status(401).json({ error: 'Unauthorized' })
     const u = r.rows[0]
-    res.json({ id: u.id, email: u.email, name: u.name })
+    res.json({ id: u.id, email: u.email, name: u.hoten, code: u.manhanvien })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to fetch user' })
   }
 })
 
-// List diagrams (no data)
+// List diagrams (no data) - Show all diagrams temporarily
 app.get('/api/diagrams', authRequired, async (req, res) => {
   try {
     const r = await db.query(
-      'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt" FROM section0.cr07Bdiagrams WHERE owner_id=$1 ORDER BY updated_at DESC',
-      [req.userId]
+      'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt" FROM section0.cr07Bdiagrams ORDER BY updated_at DESC'
     )
     res.json(r.rows)
   } catch (e) {
@@ -587,8 +589,8 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (name !== undefined && data !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, updated_at=now() WHERE id=$1 AND owner_id=$4 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-        [id, String(name), data, req.userId]
+        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+        [id, String(name), data]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -599,16 +601,16 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (name !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET name=$2, updated_at=now() WHERE id=$1 AND owner_id=$3 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-        [id, String(name), req.userId]
+        'UPDATE section0.cr07Bdiagrams SET name=$2, updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+        [id, String(name)]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       return res.json(r.rows[0])
     }
     if (data !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET data=$2, updated_at=now() WHERE id=$1 AND owner_id=$3 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
-        [id, data, req.userId]
+        'UPDATE section0.cr07Bdiagrams SET data=$2, updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt"',
+        [id, data]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -623,11 +625,11 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
   }
 })
 
-// Delete diagram
+// Delete diagram - Allow deletion of all diagrams temporarily
 app.delete('/api/diagrams/:id', authRequired, async (req, res) => {
   try {
     const { id } = req.params
-    const r = await db.query('DELETE FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    const r = await db.query('DELETE FROM section0.cr07Bdiagrams WHERE id=$1', [id])
     if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
     // Objects and connections will be deleted automatically via CASCADE
     res.json({ ok: true })
@@ -644,8 +646,8 @@ app.get('/api/diagrams/:id/objects', authRequired, async (req, res) => {
   try {
     const { id } = req.params
     
-    // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    // Temporarily skip ownership verification - allow access to all diagrams
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1', [id])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const r = await db.query(
@@ -679,8 +681,8 @@ app.get('/api/diagrams/:id/connections', authRequired, async (req, res) => {
   try {
     const { id } = req.params
     
-    // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [id, req.userId])
+    // Temporarily skip ownership verification - allow access to all diagrams
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1', [id])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const r = await db.query(
@@ -717,8 +719,8 @@ app.post('/api/diagrams/:id/objects', authRequired, async (req, res) => {
     const { id: diagramId } = req.params
     const { nodeId, nodeType, positionX, positionY, width, height, data } = req.body
     
-    // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
+    // Temporarily skip ownership verification - allow access to all diagrams
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1', [diagramId])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const objId = genId('obj')
@@ -754,8 +756,8 @@ app.post('/api/diagrams/:id/connections', authRequired, async (req, res) => {
     const { id: diagramId } = req.params
     const { edgeId, sourceNodeId, targetNodeId, sourceHandle, targetHandle, edgeType, animated, data, style } = req.body
     
-    // Verify diagram ownership
-    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1 AND owner_id=$2', [diagramId, req.userId])
+    // Temporarily skip ownership verification - allow access to all diagrams
+    const diagramCheck = await db.query('SELECT id FROM section0.cr07Bdiagrams WHERE id=$1', [diagramId])
     if (diagramCheck.rowCount === 0) return res.status(404).json({ error: 'Diagram not found' })
     
     const connId = genId('conn')

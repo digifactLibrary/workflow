@@ -112,14 +112,14 @@ module.exports = function(app, db) {
         return res.status(401).json({ error: 'Authentication required' })
       }
       
-      // Check if user has access to this diagram
+      // Temporarily skip diagram ownership check - allow access to all diagrams
       const diagramCheck = await db.query(
-        'SELECT id FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
-        [diagramId, parseInt(userId, 10)]
+        'SELECT id FROM section0.cr07Bdiagrams WHERE id = $1',
+        [diagramId]
       )
       
       if (diagramCheck.rows.length === 0) {
-        return res.status(403).json({ error: 'Access denied' })
+        return res.status(404).json({ error: 'Diagram not found' })
       }
       
       // Build query for workflow instances
@@ -159,13 +159,13 @@ module.exports = function(app, db) {
         return res.status(401).json({ error: 'Authentication required' })
       }
       
-      // Get workflow instance with access check
+      // Get workflow instance - temporarily skip access check
       const instanceResult = await db.query(`
         SELECT wi.* 
         FROM section0.cr08workflow_instances wi
         JOIN section0.cr07Bdiagrams d ON wi.diagram_id = d.id
-        WHERE wi.id = $1 AND d.owner_id = $2
-      `, [instanceId, parseInt(userId, 10)])
+        WHERE wi.id = $1
+      `, [instanceId])
       
       if (instanceResult.rows.length === 0) {
         return res.status(404).json({ error: 'Workflow instance not found' })
@@ -250,14 +250,14 @@ module.exports = function(app, db) {
         return res.status(401).json({ error: 'Authentication required' })
       }
       
-      // Check if user has access to this diagram
+      // Temporarily skip diagram ownership check - allow access to all diagrams
       const diagramCheck = await db.query(
-        'SELECT id FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
-        [diagramId, parseInt(userId, 10)]
+        'SELECT id FROM section0.cr07Bdiagrams WHERE id = $1',
+        [diagramId]
       )
       
       if (diagramCheck.rows.length === 0) {
-        return res.status(403).json({ error: 'Access denied' })
+        return res.status(404).json({ error: 'Diagram not found' })
       }
       
       // Get overall workflow stats
@@ -331,15 +331,15 @@ module.exports = function(app, db) {
         return res.status(401).json({ error: 'Authentication required' })
       }
 
-      // Get diagram with access check - include data field for fallback
+      // Get diagram - temporarily skip access check
       const diagramResult = await db.query(`
         SELECT d.id, d.name, d.created_at, d.updated_at, d.owner_id, d.data
         FROM section0.cr07Bdiagrams d
-        WHERE d.id = $1 AND d.owner_id = $2
-      `, [diagramId, userId]) // Keep userId as string
+        WHERE d.id = $1
+      `, [diagramId])
 
       if (diagramResult.rows.length === 0) {
-        return res.status(403).json({ error: 'Access denied' })
+        return res.status(404).json({ error: 'Diagram not found' })
       }
 
       const diagram = diagramResult.rows[0]
@@ -454,14 +454,14 @@ module.exports = function(app, db) {
         return res.status(401).json({ error: 'Authentication required' })
       }
 
-      // Check access
+      // Temporarily skip access check - allow access to all diagrams
       const diagramCheck = await db.query(
-        'SELECT id, name FROM section0.cr07Bdiagrams WHERE id = $1 AND owner_id = $2',
-        [diagramId, userId] // Keep userId as string
+        'SELECT id, name FROM section0.cr07Bdiagrams WHERE id = $1',
+        [diagramId]
       )
 
       if (diagramCheck.rows.length === 0) {
-        return res.status(403).json({ error: 'Access denied' })
+        return res.status(404).json({ error: 'Diagram not found' })
       }
 
       const diagramName = diagramCheck.rows[0].name
@@ -647,13 +647,13 @@ module.exports = function(app, db) {
         return res.status(401).json({ error: 'Authentication required' })
       }
 
-      // Get instance with access check
+      // Get instance - temporarily skip access check
       const instanceResult = await db.query(`
         SELECT wi.*, d.name as diagram_name
         FROM section0.cr08workflow_instances wi
         JOIN section0.cr07Bdiagrams d ON wi.diagram_id = d.id
-        WHERE wi.id = $1 AND d.owner_id = $2
-      `, [instanceId, userId]) // Keep userId as string
+        WHERE wi.id = $1
+      `, [instanceId])
 
       if (instanceResult.rows.length === 0) {
         return res.status(404).json({ error: 'Instance not found' })
@@ -781,11 +781,11 @@ module.exports = function(app, db) {
         FROM section0.cr08workflow_instances wi
         JOIN section0.cr07Bdiagrams d ON wi.diagram_id = d.id
         LEFT JOIN section0.cr08anode_states ns ON wi.id = ns.workflow_instance_id
-        WHERE d.owner_id = $1
+        WHERE 1=1
       `
       
-      const params = [userId] // Keep userId as string
-      let paramIndex = 2
+      const params = []
+      let paramIndex = 1
 
       if (diagramId) {
         query += ` AND wi.diagram_id = $${paramIndex}`
@@ -844,11 +844,11 @@ module.exports = function(app, db) {
         SELECT COUNT(DISTINCT wi.id) as total
         FROM section0.cr08workflow_instances wi
         JOIN section0.cr07Bdiagrams d ON wi.diagram_id = d.id
-        WHERE d.owner_id = $1
+        WHERE 1=1
       `
       
-      const countParams = [userId] // Keep userId as string
-      let countParamIndex = 2
+      const countParams = []
+      let countParamIndex = 1
 
       if (diagramId) {
         countQuery += ` AND wi.diagram_id = $${countParamIndex}`
@@ -953,11 +953,11 @@ module.exports = function(app, db) {
           COUNT(DISTINCT CASE WHEN wi.status = 'active' THEN wi.id END) as active_instances
         FROM section0.cr07Bdiagrams d
         LEFT JOIN section0.cr08workflow_instances wi ON d.id = wi.diagram_id
-        WHERE d.owner_id = $1
+        WHERE 1=1
       `
       
-      const params = [userId] // Keep userId as string, don't convert to int
-      let paramIndex = 2
+      const params = []
+      let paramIndex = 1
 
       if (name) {
         query += ` AND d.name ILIKE $${paramIndex}`

@@ -60,15 +60,16 @@ export async function fetchNodeOptions(): Promise<NodeOptions> {
  * Authentication-related API calls
  */
 export interface User {
-  id: string;
+  id: number;
   email: string;
   name?: string;
+  code?: string; // manhanvien field
 }
 
-export async function login(email: string, password: string): Promise<User> {
+export async function login(username: string, password: string): Promise<User> {
   return fetchAPI<User>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ username, password }), // Changed from email to username to support both email and employee code
   });
 }
 
@@ -130,7 +131,7 @@ export async function deleteDiagram(id: string): Promise<{ ok: boolean }> {
 export interface TriggerPayload {
   event: string;
   mappingId: string;
-  userId?: string;
+  userId?: number;
   data?: any;
 }
 
@@ -138,7 +139,7 @@ export interface TriggerResult {
   triggered: {
     event: string;
     mappingId: string;
-    userId?: string;
+    userId?: number;
     timestamp: string;
     data?: any;
   };
