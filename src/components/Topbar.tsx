@@ -44,8 +44,30 @@ export function Topbar() {
 
   useHotkeys('ctrl+z, cmd+z', (e) => { e.preventDefault(); undo() }, [undo])
   useHotkeys('ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z', (e) => { e.preventDefault(); redo() }, [redo])
-  useHotkeys('del, backspace', (e) => { e.preventDefault(); del() }, [del])
+  useHotkeys('delete, del, backspace', (e) => { e.preventDefault(); del() }, [del])
   useHotkeys('ctrl+s, cmd+s', (e) => { e.preventDefault(); onExport() }, [nodes, edges])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleDeleteKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete') return
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) return
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+        const role = target.getAttribute('role')
+        if (role === 'textbox') return
+      }
+      event.preventDefault()
+      del()
+    }
+    window.addEventListener('keydown', handleDeleteKey)
+    return () => {
+      window.removeEventListener('keydown', handleDeleteKey)
+    }
+  }, [del])
 
   const onExport = () => {
     const data = JSON.stringify({ nodes, edges }, null, 2)
@@ -236,9 +258,6 @@ export function Topbar() {
     </TooltipProvider>
   )
 }
-
-
-
 
 
 

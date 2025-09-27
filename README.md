@@ -1,20 +1,6 @@
 # Workflow Diagram Manager
 
 Ứng dụng quản lý sơ đồ workflow với React Flow, Node.js và PostgreSQL.
-
-## 🆕 Cập nhật mới: Cơ chế lưu trữ tối ưu
-
-### Thay đổi lớn: Từ JSON sang bảng riêng biệt
-
-**Trước đây**: Tất cả nodes và edges được nhét vào field `data` dạng JSON  
-**Hiện tại**: Hệ thống bảng riêng biệt cho objects và connections
-
-#### Lợi ích:
-- 🚀 **Performance**: Query nhanh hơn, không cần parse JSON
-- 📈 **Scalability**: Dễ mở rộng và thêm metadata
-- 📊 **Analytics**: Query trực tiếp patterns, statistics
-- 🔧 **Maintainability**: Code rõ ràng, dễ debug
-
 ## Cấu trúc Database
 
 ### Bảng chính
@@ -43,6 +29,13 @@ diagram_connections (
 
 ## Cài đặt và Chạy
 
+### 0. Quick setup
+Cấu hình database như bước 1, sau đó chạy các lệnh sau:
+```bash
+cd workflow/
+npm i && npm run dev:full
+```
+Thế là xong!!
 ### 1. Database Setup
 ```bash
 # Tạo PostgreSQL database
@@ -55,6 +48,7 @@ export PGUSER=postgres
 export PGPASSWORD=your_password
 export PGDATABASE=workflow_db
 ```
+hoặc tạo file .env chứa các biến trên cũng được.
 
 ### 2. Backend
 ```bash
@@ -64,9 +58,9 @@ npm start
 ```
 
 Server sẽ tự động:
-- ✅ Tạo tables mới nếu chưa có
-- ✅ Migrate dữ liệu cũ sang format mới  
-- ✅ Maintain backward compatibility
+- Tạo tables mới nếu chưa có
+- Migrate dữ liệu cũ sang format mới  
+- Maintain backward compatibility
 
 ### 3. Frontend
 ```bash
@@ -99,12 +93,12 @@ npm run dev
 - User-specific diagrams
 
 ### Diagram Editor
-- ✅ Drag & drop node creation
-- ✅ Visual connection drawing
-- ✅ Multiple node types (start, end, decision, process, etc.)
-- ✅ Real-time editing
-- ✅ Undo/redo functionality
-- ✅ Template generation (linear, if-else, parallel)
+- Drag & drop node creation
+- Visual connection drawing
+- Multiple node types (start, end, decision, process, etc.)
+- Real-time editing
+- Undo/redo functionality
+- Template generation (linear, if-else, parallel)
 
 ### Node Types
 - **Start/End**: Điểm bắt đầu và kết thúc
@@ -117,11 +111,11 @@ npm run dev
 - **Comment**: Annotations
 
 ### Workspace Management
-- ✅ Multiple diagrams per user
-- ✅ Dashboard overview
-- ✅ Create, rename, duplicate, delete
-- ✅ Auto-save functionality
-- ✅ Recent diagrams tracking
+- Multiple diagrams per user
+- Dashboard overview
+- Create, rename, duplicate, delete
+- Auto-save functionality
+- Recent diagrams tracking
 
 ## Cấu trúc Code
 
@@ -164,10 +158,10 @@ Server tự động detect và migrate dữ liệu cũ:
 ```
 
 ### Backward Compatibility
-- ✅ API cũ vẫn hoạt động bình thường
-- ✅ Field `data` vẫn được sync
-- ✅ Frontend cũ vẫn supported
-- ✅ Không mất dữ liệu
+- API cũ vẫn hoạt động bình thường
+- Field `data` vẫn được sync
+- Frontend cũ vẫn supported
+- Không mất dữ liệu
 
 ### Rollback (nếu cần)
 ```sql
