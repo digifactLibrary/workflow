@@ -1437,7 +1437,7 @@ app.get('/api/options', async (req, res) => {
         manhanvien as value,
         hoten as label
       FROM section9nhansu.ns01taikhoannguoidung
-      WHERE trangthai = 'Đang làm việc'
+      WHERE status = 'Đang làm việc'
       ORDER BY hoten
     `).catch(() => ({ rows: [] }));
     

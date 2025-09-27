@@ -92,7 +92,7 @@ class WorkflowEngine {
          WHERE diagram_id = $1 AND 
          context->>'startMappingId' = $2 AND
          context->>'startObjectId' = $3 AND
-         status = 'active' AND
+         status IN ('active', 'waiting') AND
          started_by = $4
          `,
         [effectiveDiagramId, mappingId, objectId, userId]
@@ -129,6 +129,7 @@ class WorkflowEngine {
       const enrichedTriggerData = {
         eventName,
         mappingId,
+        senderId: userId,
         ...triggerData
       };
       // Enrich context with additional data
@@ -338,12 +339,6 @@ class WorkflowEngine {
    * @returns {Promise<object>} - Result of the execution
    */
   async executeDecisionNode(client, workflowInstanceId, nodeStateId, nodeId, inputData) {
-    console.log("==== DEBUG executeDecisionNode START ====");
-    console.log("workflowInstanceId:", workflowInstanceId);
-    console.log("nodeStateId:", nodeStateId);
-    console.log("nodeId:", nodeId);
-    console.log("inputData:", JSON.stringify(inputData, null, 2));
-
     // Get node details
     const nodeResult = await client.query(
       `SELECT o.data FROM section0.cr07Cdiagram_objects o WHERE o.node_id = $1`,
@@ -361,11 +356,6 @@ class WorkflowEngine {
     const inputValue = inputData.result !== undefined ? inputData.result : (inputData.value || "");
     const conditionMet = inputValue == conditionValue;
 
-    console.log("Node data:", JSON.stringify(nodeData, null, 2));
-    console.log("Condition value from node:", conditionValue);
-    console.log("Input value:", inputValue);
-    console.log("Condition met?", conditionMet);
-
     // Check AND/OR logic
     let shouldProcess = true;
     if (inputData.checkType) {
@@ -379,7 +369,6 @@ class WorkflowEngine {
         }
       }
     }
-    console.log("checkType:", inputData.checkType, "lastInput:", inputData.lastInput, "→ shouldProcess:", shouldProcess);
 
     if (!shouldProcess) {
       console.log("Returning early, not processing yet.");
@@ -397,7 +386,6 @@ class WorkflowEngine {
         AND ns.status = 'active'`,
       [nodeId, workflowInstanceId]
     );
-    console.log("Active source nodes to mark completed:", sourceNodesResult.rows.map(r => r.id));
 
     for (const sourceNode of sourceNodesResult.rows) {
       await client.query(
@@ -413,7 +401,6 @@ class WorkflowEngine {
       WHERE id = $1`,
       [nodeStateId]
     );
-    console.log(`Node state ${nodeStateId} marked as completed.`);
 
     // Decision metadata
     const decisionMetadata = {
@@ -422,7 +409,6 @@ class WorkflowEngine {
       conditionType: nodeData.conditionType || "equals",
       processedAt: new Date().toISOString(),
     };
-    console.log("Decision metadata:", JSON.stringify(decisionMetadata, null, 2));
 
     await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, decisionMetadata);
 
@@ -434,12 +420,6 @@ class WorkflowEngine {
       [nodeId, conditionMet ? "true" : "false"]
     );
 
-    console.log("Outgoing connections:", connectionsResult.rows.map(r => ({
-      connectionId: r.id,
-      targetNodeId: r.target_node_id,
-      data: r.data
-    })));
-
     // Process outgoing connections
     let moreNodesToProcess = false;
     for (const conn of connectionsResult.rows) {
@@ -448,8 +428,6 @@ class WorkflowEngine {
       moreNodesToProcess = true;
     }
 
-    console.log("Will continue?", moreNodesToProcess);
-    console.log("==== DEBUG executeDecisionNode END ====");
     return { continue: moreNodesToProcess };
   }
 
@@ -603,7 +581,7 @@ class WorkflowEngine {
     )
 
     if (workflowResult.rows.length === 0) return { continue: false }
-    const senderId = workflowResult.rows[0].started_by
+    const senderId = inputData.senderId
     
     // Get sender name from user table
     let senderName = 'System'
@@ -654,7 +632,7 @@ class WorkflowEngine {
       const usersByRoleResult = await client.query(
         `SELECT id, email 
          FROM section9nhansu.ns01taikhoannguoidung 
-         WHERE recordidchucdanh = ANY($1) AND trangthai = 'Đang làm việc'`,
+         WHERE recordidchucdanh = ANY($1) AND status = 'Đang làm việc'`,
         [roleIdsArray]
       ).catch(() => ({ rows: [] }))
       
@@ -670,7 +648,7 @@ class WorkflowEngine {
       const usersByDirectIdResult = await client.query(
         `SELECT id, email 
          FROM section9nhansu.ns01taikhoannguoidung 
-         WHERE id = ANY($1) AND trangthai = 'Đang làm việc'`,
+         WHERE id = ANY($1) AND status = 'Đang làm việc'`,
         [humanIdsArray]
       ).catch(() => ({ rows: [] }))
       
@@ -695,13 +673,14 @@ class WorkflowEngine {
     const receiversData = Array.from(uniqueReceivers.values())
 
     // Check if previous node state is trigger node to get input data
-    const preNodeType = await client.query(
-      `SELECT o.node_type
-       FROM section0.cr07Cdiagram_objects o
-       JOIN section0.cr08anode_states ns ON o.node_id = ns.node_id
-       WHERE ns.id = $1`,
-      [preNodeStateId]
-    )
+    console.log("Debug preNodeStateId:", preNodeStateId);
+
+    const preNodeType = await client.query(`
+        SELECT o.node_type, o.data
+        FROM section0.cr07Cdiagram_objects o
+        JOIN section0.cr08anode_states ns ON o.node_id = ns.node_id
+        WHERE ns.id = $1
+      `, [preNodeStateId]);
 
     let needAction = false
     let enrichedData = {}
@@ -715,33 +694,43 @@ class WorkflowEngine {
         WHERE code = $1
       `, [inputData.eventName]).catch(() => ({ rows: [] }));
       const eventDisplayName = eventInfoResult.rowCount > 0 ? eventInfoResult.rows[0].name : inputData.eventName;
-      // Lấy thông tin module từ bảng cr04viewmodelmapping
-      const moduleInfoResult = await client.query(`
-        SELECT displayname, modelname
-        FROM section0.cr04viewmodelmapping 
-        WHERE id = $1
-      `, [inputData.mappingId]).catch(() => ({ rows: [] }));
       
-      const modelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].displayname : '';
-      const rawModelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].modelname : '';
-
-      const tableName = rawModelName
-        ? rawModelName.split('.').pop().toLowerCase()
-        : '';
-      // Xác định objectDisplayName từ dữ liệu
-      let objectDisplayName = '';
-      if (inputData.Code && inputData.Name) {
-        objectDisplayName = `[${inputData.Code}] ${inputData.Name}`;
-      } else if (inputData.Name) {
-        objectDisplayName = inputData.Name;
-      } else if (inputData.Code) {
-        objectDisplayName = inputData.Code;
-      } else if (inputData.Id) {
-        objectDisplayName = inputData.Id;
+      let title = ''
+      let details = ''
+      let tableName = ''
+      if (inputData.eventName === 'approve') {
+        title = `Kết quả phê duyệt`
+        details = inputData.details
       }
+      else {
+        // Lấy thông tin module từ bảng cr04viewmodelmapping
+        const moduleInfoResult = await client.query(`
+          SELECT displayname, modelname
+          FROM section0.cr04viewmodelmapping 
+          WHERE id = $1
+        `, [inputData.mappingId]).catch(() => ({ rows: [] }));
+        
+        const modelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].displayname : '';
+        const rawModelName = moduleInfoResult.rowCount > 0 ? moduleInfoResult.rows[0].modelname : '';
 
-      const title = eventDisplayName ? `Thông báo ${eventDisplayName}` : 'Thông báo mới';
-      const details = `Người gửi: ${senderName}\n${eventDisplayName || ''} ${modelName || ''}: ${objectDisplayName || ''}`;
+        tableName = rawModelName
+          ? rawModelName.split('.').pop().toLowerCase()
+          : '';
+        // Xác định objectDisplayName từ dữ liệu
+        let objectDisplayName = '';
+        if (inputData.Code && inputData.Name) {
+          objectDisplayName = `[${inputData.Code}] ${inputData.Name}`;
+        } else if (inputData.Name) {
+          objectDisplayName = inputData.Name;
+        } else if (inputData.Code) {
+          objectDisplayName = inputData.Code;
+        } else if (inputData.Id) {
+          objectDisplayName = inputData.Id;
+        }
+
+        title = eventDisplayName ? `Thông báo ${eventDisplayName}` : 'Thông báo mới';
+        details = `Người gửi: ${senderName}\n${eventDisplayName || ''} ${modelName || ''}: ${objectDisplayName || ''}`;
+      }
 
       enrichedData = {
         ...inputData,
@@ -1084,6 +1073,14 @@ class WorkflowEngine {
     return result.rows.length > 0 ? parseInt(result.rows[0].count, 10) : 0
   }
 
+  async getUserNameById(client, userId) {
+    const result = await client.query(
+      `SELECT hoten FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
+      [parseInt(userId, 10)]
+    )
+    return result.rows.length > 0 ? result.rows[0].hoten : null
+  }
+
   /**
    * Create approval records for human nodes
    * @param {object} client - Database client
@@ -1170,12 +1167,11 @@ class WorkflowEngine {
    * @param {string} comment - Optional comment
    * @returns {Promise<boolean>} - Success status
    */
-  async processHumanApproval(mappingId, objectId, requesterId, userId, approved, comment) {
+  async processHumanApproval(mappingId, objectId, userId, approved, comment) {
     const client = await this.db.connect()
 
     const mappingIdInt = parseInt(mappingId, 10);
     const objectIdInt = parseInt(objectId, 10);
-    const requesterIdInt = parseInt(requesterId, 10);
     const userIdInt = parseInt(userId, 10);
 
     try {
@@ -1187,10 +1183,9 @@ class WorkflowEngine {
           WHERE (wi.context->>'startMappingId')::int = $1
             AND (wi.context->>'startObjectId')::int = $2
             AND (wi.status = 'active' OR wi.status = 'waiting')
-            AND wi.started_by = $3
           ORDER BY wi.started_at DESC
           LIMIT 1`,
-        [mappingIdInt, objectIdInt, requesterIdInt]
+        [mappingIdInt, objectIdInt]
       );
       if (workflowInstanceResult.rows.length === 0) {
         throw new Error('Active workflow instance not found for the given mapping and object')
@@ -1226,7 +1221,7 @@ class WorkflowEngine {
         throw new Error('Approval record not found')
       }
       
-      // Get the node details to check approval mode
+      // Get the node details to check approval mode and connected human nodes
       const nodeInfoResult = await client.query(
         `SELECT 
           o.data->>'approvalMode' AS approval_mode,
@@ -1240,7 +1235,7 @@ class WorkflowEngine {
         [nodeState.id, nodeState.node_id]
       );
 
-      const { approval_mode, approved_count, rejected_count, total_count } = nodeInfoResult.rows[0];
+      const { approval_mode, approved_count, rejected_count, total_count, connected_human_nodes } = nodeInfoResult.rows[0];
       const approvalMode = approval_mode || 'any';
 
       let nodeCompleted = false;
@@ -1280,19 +1275,23 @@ class WorkflowEngine {
 
       // Lấy logs cũ (nếu có)
       const existingLogs = nodeContext.logs || [];
+      const existingDetails = nodeContext.details || '';
 
       // Tạo log mới
       const newLogEntry = {
-        result: approvalResult ? 'approved' : 'rejected',
+        result: approved ? 'approved' : 'rejected',
         approverId: userIdInt,
         comment: comment || null,
         processedAt: new Date().toISOString()
       };
 
       var result = approvalResult ? 'approved' : 'rejected';
-      if (approvalResult === null) {
-        result = 'pending';
-      }
+
+      var approverName = await this.getUserNameById(client, userIdInt);
+      var exDetails = existingDetails ? existingDetails + '\n' : '';
+      var actionText = approved ? 'phê duyệt' : 'từ chối';
+      var detailsPrefix = `${approverName || 'Người dùng ' + userIdInt} đã ${actionText}`;
+      var details = `${exDetails}${detailsPrefix} yêu cầu phê duyệt của bạn.`;
       // Build approvalMetadata
       const approvalMetadata = {
         result: result,
@@ -1300,6 +1299,7 @@ class WorkflowEngine {
         rejected_count,
         total_count,
         approvalMode,
+        details,
         logs: [...existingLogs, newLogEntry] // append thêm
       };
 
@@ -1312,6 +1312,14 @@ class WorkflowEngine {
           `UPDATE section0.cr08anode_states
            SET status = 'completed'
            WHERE id = $1`,
+          [nodeState.id]
+        )
+
+        // Cancel any remaining pending approvals for this node
+        await client.query(
+          `UPDATE section0.cr08cnode_approvals
+           SET status = 'canceled', updated_at = now()
+           WHERE node_state_id = $1 AND status = 'pending'`,
           [nodeState.id]
         )
         

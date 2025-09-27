@@ -505,7 +505,7 @@ const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeSta
         type: edgeStats.edgeType === 'straight' ? 'straight' : 'smoothstep',
         animated: edgeStats.animated || sourceActivity > 0,
         style: { ...baseStyle, ...activityStyle },
-        label: sourceActivity > 0 ? `${sourceActivity} active` : undefined,
+        label: sourceActivity > 0 ? `${sourceActivity} pending` : undefined,
         labelStyle: { 
           fontSize: 10, 
           fill: '#3b82f6',

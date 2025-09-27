@@ -72,13 +72,13 @@ module.exports = function(app, db) {
    */
   app.post('/api/workflow/approval', async (req, res) => {
     try {
-      const { mappingId, objectId, requesterId, userId, approved, comment } = req.body
+      const { mappingId, objectId, userId, approved, comment } = req.body
       
       if (!objectId || !mappingId) {
         return res.status(400).json({ error: 'Object and mapping are required' })
       }
       
-      if (!userId || !requesterId) {
+      if (!userId) {
         return res.status(401).json({ error: 'Authentication required' })
       }
       
@@ -86,7 +86,6 @@ module.exports = function(app, db) {
       await workflowEngine.processHumanApproval(
         mappingId,
         objectId,
-        requesterId,
         userId,
         !!approved,
         comment
