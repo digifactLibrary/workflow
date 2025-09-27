@@ -937,7 +937,7 @@ export function DetailBar() {
                     <div
                       key={opt.value}
                       className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
-                        activeDiagramDetails?.triggerModule === opt.value ? 'bg-muted' : ''
+                        activeDiagramDetails?.mappingId === (opt as any)?.id ? 'bg-muted' : ''
                       }`}
                       onClick={() => {
                         const selectedOption = triggerModuleOptions.find(o => o.value === opt.value);
@@ -954,11 +954,11 @@ export function DetailBar() {
                 )}
               </div>
             </div>
-            {(activeDiagramDetails?.triggerModule && moduleQuery === '') && (
+            {(activeDiagramDetails?.mappingId && moduleQuery === '') && (
               <div className="mt-2 text-xs">
                 <span className="text-muted-foreground">Module đã chọn: </span>
                 <span className="font-medium">
-                  {triggerModuleOptions.find(opt => opt.value === activeDiagramDetails?.triggerModule)?.label || 'Unknown'}
+                  {triggerModuleOptions.find(opt => (opt as any).id === activeDiagramDetails?.mappingId)?.label || 'Unknown'}
                 </span>
               </div>
             )}

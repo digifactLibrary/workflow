@@ -185,7 +185,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
           connections,
           // Extract diagram-level details from dedicated columns; fall back to legacy data.details if present
           details: {
-            triggerModule: (response as any)?.activeModule ?? (response?.data as any)?.details?.triggerModule ?? s.diagrams[id]?.details?.triggerModule,
+            mappingId: (response as any)?.activeModule ?? (response?.data as any)?.details?.mappingId ?? s.diagrams[id]?.details?.mappingId,
             approval: (response as any)?.approval ?? (response?.data as any)?.details?.approval ?? s.diagrams[id]?.details?.approval,
           }
         } 
@@ -260,7 +260,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ data: { nodes, edges }, activeModule: details?.triggerModule ?? null, approval: typeof details?.approval === 'boolean' ? details?.approval : null }),
+      body: JSON.stringify({ data: { nodes, edges }, activeModule: details?.mappingId ?? null, approval: typeof details?.approval === 'boolean' ? details?.approval : null }),
     })
     if (!res.ok) return
     const r = (await res.json()) as { updatedAt: string | number }
