@@ -631,6 +631,11 @@ const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeSta
     return `${(ms / 3600000).toFixed(1)} h`;
   }, []);
 
+  const handleActivityClick = useCallback((activity: ActivitySummary) => {
+    const mappingValue = activity.startMappingId ?? 'N/A';
+    console.log(`Mapping: ${mappingValue}`);
+  }, []);
+
   const defaultViewport = { x: 0, y: 0, zoom: 0.8 };
 
   return (
@@ -761,7 +766,16 @@ const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeSta
                 sortedActivities.map((activity, index) => (
                   <div
                     key={`${activity.instanceId}-${activity.timestamp}-${index}`}
-                    className="border border-gray-200 rounded-md bg-gray-50 p-3"
+                    className="border border-gray-200 rounded-md bg-gray-50 p-3 cursor-pointer transition hover:border-blue-300 hover:bg-blue-50"
+                    onClick={() => handleActivityClick(activity)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleActivityClick(activity);
+                      }
+                    }}
                   >
                     <div className="flex items-center justify-between text-xs font-medium text-gray-700">
                       <span className="capitalize">{activity.status}</span>
