@@ -33,16 +33,7 @@ async function ensureSchema() {
   // Create schema section0 if not exists
   await db.query('CREATE SCHEMA IF NOT EXISTS section0;')
   
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS section0.cr07Ausers (
-      id TEXT PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      name TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-  `)
+  // Main diagrams table
   await db.query(`
     CREATE TABLE IF NOT EXISTS section0.cr07Bdiagrams (
       id TEXT PRIMARY KEY,
