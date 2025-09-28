@@ -99,12 +99,45 @@ export interface Diagram {
   connections?: any[];
 }
 
+export interface DashboardModuleDiagram {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  activeModuleId: string | null;
+  viewModelId: string | null;
+  viewModelDisplayName: string | null;
+  moduleId: string | null;
+}
+
+export interface DashboardModuleSummary {
+  id: string;
+  displayName: string;
+  moduleCode: string | null;
+  path: string;
+  diagramCount: number;
+  diagrams: DashboardModuleDiagram[];
+}
+
+export interface DashboardModulesResponse {
+  modules: DashboardModuleSummary[];
+  totals: {
+    moduleCount: number;
+    diagramCount: number;
+    unassignedCount: number;
+  };
+}
+
 export async function getDiagrams(): Promise<Diagram[]> {
   return fetchAPI<Diagram[]>('/diagrams');
 }
 
 export async function getDiagram(id: string): Promise<Diagram> {
   return fetchAPI<Diagram>(`/diagrams/${id}`);
+}
+
+export async function getDashboardModules(): Promise<DashboardModulesResponse> {
+  return fetchAPI<DashboardModulesResponse>('/dashboard/modules');
 }
 
 export async function createDiagram(name: string, data?: any): Promise<Diagram> {

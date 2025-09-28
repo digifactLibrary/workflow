@@ -3,11 +3,14 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ReactFlowProvider } from '@xyflow/react'
+import { BrowserRouter } from 'react-router-dom'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ReactFlowProvider>
-      <App />
-    </ReactFlowProvider>
+    <BrowserRouter>
+      <ReactFlowProvider>
+        <App />
+      </ReactFlowProvider>
+    </BrowserRouter>
   </StrictMode>,
 )

@@ -21,22 +21,22 @@ const dashboardModes = [
     title: 'Static Flow Config',
     description: 'Design and configure workflow diagrams',
     icon: '⚙️',
-    color: 'bg-blue-500'
+    color: 'bg-blue-500',
   },
   {
     mode: 'statistics' as DashboardMode,
     title: 'Flow Statistics',
     description: 'Monitor instances and performance metrics',
     icon: '📊',
-    color: 'bg-green-500'
+    color: 'bg-green-500',
   },
   {
     mode: 'instance' as DashboardMode,
     title: 'Instance Tracking',
     description: 'Track individual workflow instances',
     icon: '🔍',
-    color: 'bg-purple-500'
-  }
+    color: 'bg-purple-500',
+  },
 ];
 
 const DashboardSelector: React.FC<DashboardSelectorProps> = ({
@@ -44,7 +44,7 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
   initialDiagramId,
   initialInstanceId,
   initialMappingId,
-  initialObjectId
+  initialObjectId,
 }) => {
   const [dashboardState, setDashboardState] = useState<DashboardState>({
     mode: initialMode,
@@ -52,10 +52,10 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
     selectedInstanceId: initialInstanceId,
     searchParams: {
       startMappingId: initialMappingId,
-      startObjectId: initialObjectId
+      startObjectId: initialObjectId,
     },
     refreshInterval: 30,
-    autoRefresh: true
+    autoRefresh: true,
   });
 
   const [breadcrumbs, setBreadcrumbs] = useState<Array<{
@@ -64,87 +64,64 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
     data?: any;
   }>>([]);
 
-  // Mode switching
   const handleModeChange = useCallback((newMode: DashboardMode) => {
-    setDashboardState(prev => ({
+    setDashboardState((prev) => ({
       ...prev,
       mode: newMode,
-      // Reset specific selections when changing modes
       ...(newMode !== 'instance' && { selectedInstanceId: undefined }),
-      ...(newMode === 'instance' && { selectedDiagramId: undefined })
+      ...(newMode === 'instance' && { selectedDiagramId: undefined }),
     }));
   }, []);
 
-  // Diagram selection from static or statistics dashboard
   const handleDiagramSelect = useCallback((diagramId: string) => {
-    setDashboardState(prev => ({
+    setDashboardState((prev) => ({
       ...prev,
-      selectedDiagramId: diagramId
+      selectedDiagramId: diagramId,
     }));
   }, []);
 
-  // Instance selection from search or statistics
   const handleInstanceSelect = useCallback((instanceId: string) => {
-    setDashboardState(prev => ({
+    setDashboardState((prev) => ({
       ...prev,
       selectedInstanceId: instanceId,
-      mode: 'instance' // Auto-switch to instance tracking mode
+      mode: 'instance',
     }));
   }, []);
 
-  // Navigation helpers
   const navigateToStatistics = useCallback((diagramId: string) => {
-    setDashboardState(prev => ({
+    setDashboardState((prev) => ({
       ...prev,
       mode: 'statistics',
-      selectedDiagramId: diagramId
+      selectedDiagramId: diagramId,
     }));
-    
-    setBreadcrumbs(prev => [
+
+    setBreadcrumbs((prev) => [
       ...prev,
       {
         label: `Statistics for Diagram ${diagramId}`,
         mode: 'statistics',
-        data: { diagramId }
-      }
+        data: { diagramId },
+      },
     ]);
   }, []);
 
-  const navigateToInstanceTracking = useCallback((instanceId: string, context?: any) => {
-    setDashboardState(prev => ({
-      ...prev,
-      mode: 'instance',
-      selectedInstanceId: instanceId
-    }));
-    
-    setBreadcrumbs(prev => [
-      ...prev,
-      {
-        label: `Instance ${instanceId.slice(-8)}`,
-        mode: 'instance',
-        data: { instanceId, ...context }
+  const handleBreadcrumbClick = useCallback(
+    (index: number) => {
+      const breadcrumb = breadcrumbs[index];
+      if (breadcrumb) {
+        setDashboardState((prev) => ({
+          ...prev,
+          mode: breadcrumb.mode,
+          ...(breadcrumb.data?.diagramId && { selectedDiagramId: breadcrumb.data.diagramId }),
+          ...(breadcrumb.data?.instanceId && { selectedInstanceId: breadcrumb.data.instanceId }),
+        }));
+        setBreadcrumbs((prev) => prev.slice(0, index + 1));
       }
-    ]);
-  }, []);
+    },
+    [breadcrumbs],
+  );
 
-  const handleBreadcrumbClick = useCallback((index: number) => {
-    const breadcrumb = breadcrumbs[index];
-    if (breadcrumb) {
-      setDashboardState(prev => ({
-        ...prev,
-        mode: breadcrumb.mode,
-        ...(breadcrumb.data?.diagramId && { selectedDiagramId: breadcrumb.data.diagramId }),
-        ...(breadcrumb.data?.instanceId && { selectedInstanceId: breadcrumb.data.instanceId })
-      }));
-      
-      // Trim breadcrumbs to clicked level
-      setBreadcrumbs(prev => prev.slice(0, index + 1));
-    }
-  }, [breadcrumbs]);
-
-  const getCurrentModeInfo = () => {
-    return dashboardModes.find(m => m.mode === dashboardState.mode);
-  };
+  const getCurrentModeInfo = () => dashboardModes.find((m) => m.mode === dashboardState.mode);
 
   const renderModeSelector = () => (
     <Card>
@@ -153,7 +130,7 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
         <CardDescription>Choose the type of dashboard to view</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {dashboardModes.map((mode) => (
             <Card
               key={mode.mode}
@@ -165,10 +142,10 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
               onClick={() => handleModeChange(mode.mode)}
             >
               <CardContent className="p-6 text-center">
-                <div className={`w-16 h-16 ${mode.color} rounded-full flex items-center justify-center mx-auto mb-4`}>
+                <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${mode.color}`}>
                   <span className="text-2xl">{mode.icon}</span>
                 </div>
-                <h3 className="font-semibold text-lg mb-2">{mode.title}</h3>
+                <h3 className="mb-2 text-lg font-semibold">{mode.title}</h3>
                 <p className="text-sm text-gray-600">{mode.description}</p>
                 {dashboardState.mode === mode.mode && (
                   <Badge variant="default" className="mt-3">
@@ -187,23 +164,23 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
     if (breadcrumbs.length === 0) return null;
 
     return (
-      <div className="flex items-center space-x-2 text-sm text-gray-600 mb-4">
+      <div className="mb-4 flex items-center space-x-2 text-sm text-gray-600">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => {
             setBreadcrumbs([]);
-            setDashboardState(prev => ({
+            setDashboardState((prev) => ({
               ...prev,
               selectedDiagramId: undefined,
-              selectedInstanceId: undefined
+              selectedInstanceId: undefined,
             }));
           }}
         >
           🏠 Home
         </Button>
         {breadcrumbs.map((crumb, index) => (
-          <React.Fragment key={index}>
+          <React.Fragment key={`${crumb.label}-${index}`}>
             <span className="text-gray-400">›</span>
             <Button
               variant="ghost"
@@ -220,18 +197,15 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
   };
 
   const renderCurrentDashboard = () => {
-    const mode = dashboardState.mode;
-    
-    switch (mode) {
+    switch (dashboardState.mode) {
       case 'static':
         return (
           <StaticFlowDashboard
             diagramId={dashboardState.selectedDiagramId}
             onDiagramSelect={handleDiagramSelect}
-            editable={true}
+            editable
           />
         );
-      
       case 'statistics':
         return (
           <FlowStatisticsDashboard
@@ -240,7 +214,6 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
             refreshInterval={dashboardState.refreshInterval}
           />
         );
-      
       case 'instance':
         return (
           <InstanceTrackingDashboard
@@ -250,7 +223,6 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
             onInstanceSelect={handleInstanceSelect}
           />
         );
-      
       default:
         return <div>Invalid dashboard mode</div>;
     }
@@ -258,12 +230,12 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
 
   const renderQuickActions = () => {
     const currentMode = getCurrentModeInfo();
-    
+
     return (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-3">
-            <span className={`w-8 h-8 ${currentMode?.color} rounded-full flex items-center justify-center`}>
+            <span className={`flex h-8 w-8 items-center justify-center rounded-full ${currentMode?.color}`}>
               {currentMode?.icon}
             </span>
             <span>{currentMode?.title}</span>
@@ -272,16 +244,6 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            {dashboardState.mode !== 'static' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleModeChange('static')}
-              >
-                ⚙️ Configure Flow
-              </Button>
-            )}
-            
             {dashboardState.mode !== 'statistics' && dashboardState.selectedDiagramId && (
               <Button
                 variant="outline"
@@ -291,7 +253,7 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
                 📊 View Statistics
               </Button>
             )}
-            
+
             {dashboardState.mode !== 'instance' && (
               <Button
                 variant="outline"
@@ -301,18 +263,19 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
                 🔍 Track Instance
               </Button>
             )}
-            
-            {/* Refresh interval control for statistics */}
+
             {dashboardState.mode === 'statistics' && (
-              <div className="flex items-center space-x-2 ml-auto">
+              <div className="ml-auto flex items-center space-x-2">
                 <span className="text-sm">Auto-refresh:</span>
                 <select
-                  className="px-2 py-1 border border-gray-300 rounded text-sm"
+                  className="rounded border border-gray-300 px-2 py-1 text-sm"
                   value={dashboardState.refreshInterval}
-                  onChange={(e) => setDashboardState(prev => ({
-                    ...prev,
-                    refreshInterval: parseInt(e.target.value)
-                  }))}
+                  onChange={(e) =>
+                    setDashboardState((prev) => ({
+                      ...prev,
+                      refreshInterval: parseInt(e.target.value, 10),
+                    }))
+                  }
                 >
                   <option value={10}>10s</option>
                   <option value={30}>30s</option>
@@ -328,18 +291,18 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
     );
   };
 
+  const showModeSelector =
+    dashboardState.mode !== 'instance' &&
+    !dashboardState.selectedDiagramId &&
+    !dashboardState.selectedInstanceId;
+
   return (
-    <div className="w-full h-full flex flex-col space-y-6">
-      {/* Page Header */}
+    <div className="flex h-full w-full flex-col space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Workflow Dashboard</h1>
-          <p className="text-gray-600 mt-1">
-            Manage workflows, monitor performance, and track instances
-          </p>
+          <p className="mt-1 text-gray-600">Manage workflows, monitor performance, and track instances</p>
         </div>
-        
-        {/* Current Status */}
         <div className="text-right">
           {dashboardState.selectedDiagramId && (
             <Badge variant="outline" className="mb-1">
@@ -347,30 +310,20 @@ const DashboardSelector: React.FC<DashboardSelectorProps> = ({
             </Badge>
           )}
           {dashboardState.selectedInstanceId && (
-            <Badge variant="outline" className="mb-1 ml-2">
+            <Badge variant="outline" className="ml-2 mb-1">
               Instance: {dashboardState.selectedInstanceId.slice(-8)}
             </Badge>
           )}
         </div>
       </div>
 
-      {/* Breadcrumbs */}
       {renderBreadcrumbs()}
 
-      {/* Mode Selector - only show when no specific selection */}
-      {!dashboardState.selectedDiagramId && !dashboardState.selectedInstanceId && (
-        renderModeSelector()
-      )}
+      {showModeSelector && renderModeSelector()}
 
-      {/* Quick Actions */}
-      {(dashboardState.selectedDiagramId || dashboardState.selectedInstanceId) && (
-        renderQuickActions()
-      )}
+      {(dashboardState.selectedDiagramId || dashboardState.selectedInstanceId) && renderQuickActions()}
 
-      {/* Current Dashboard */}
-      <div className="flex-1">
-        {renderCurrentDashboard()}
-      </div>
+      <div className="flex-1">{renderCurrentDashboard()}</div>
     </div>
   );
 };

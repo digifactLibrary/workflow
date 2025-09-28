@@ -17,6 +17,7 @@ import { SelectionMode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './index.css'
 import { Expand, Minimize } from 'lucide-react'
+import { Routes, Route, Navigate } from 'react-router-dom'
 
 import StartNode from './flow/nodes/StartNode'
 import EndNode from './flow/nodes/EndNode'
@@ -57,9 +58,18 @@ const nodeTypes: NodeTypes = {
   status: StatusNode,
 }
 
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/:modulePath?" element={<WorkspaceApp />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
+
 const edgeTypes: EdgeTypes = { dir: DirectionEdge }
 
-export default function App() {
+function WorkspaceApp() {
   const isAuthed = useAuthStore((s) => s.isAuthenticated)
   const bootstrapAuth = useAuthStore((s) => s.bootstrap)
   const showDashboard = useWorkspaceStore((s) => s.ui.showDashboard)

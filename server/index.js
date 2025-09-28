@@ -534,6 +534,114 @@ app.get('/api/diagrams', authRequired, async (req, res) => {
   }
 })
 
+app.get('/api/dashboard/modules', authRequired, async (req, res) => {
+  try {
+    const [modulesResult, viewModelsResult, diagramsResult] = await Promise.all([
+      db.query(`
+        SELECT 
+          id, 
+          displayname
+        FROM section0.cr06modulemapping
+        ORDER BY displayname
+      `).catch(() => ({ rows: [] })),
+      db.query(`
+        SELECT 
+          id, 
+          moduleid, 
+          modelname, 
+          displayname 
+        FROM section0.cr04viewmodelmapping
+      `).catch(() => ({ rows: [] })),
+      db.query(`
+        SELECT 
+          id, 
+          name, 
+          created_at as "createdAt", 
+          updated_at as "updatedAt", 
+          active_module as "activeModule"
+        FROM section0.cr07Bdiagrams
+        ORDER BY updated_at DESC
+      `).catch(() => ({ rows: [] })),
+    ])
+
+    const modules = modulesResult.rows.map((row) => {
+      const path = row.id != null ? String(row.id) : `module-${Math.random().toString(36).slice(2, 8)}`
+      return {
+        id: row.id != null ? String(row.id) : path,
+        displayName: row.displayname || 'Module',
+        moduleCode: null,
+        path,
+        diagrams: [],
+      }
+    })
+
+    const moduleMap = new Map(modules.map((mod) => [mod.id, mod]))
+
+    // Ensure we always include an "unassigned" bucket for diagrams without module mapping
+    const unassignedBucket = {
+      id: 'unassigned',
+      displayName: 'Chưa phân loại',
+      moduleCode: null,
+      path: 'unassigned',
+      diagrams: [],
+    }
+
+    const viewModelMap = new Map(
+      viewModelsResult.rows.map((row) => [
+        row.id != null ? String(row.id) : null,
+        {
+          id: row.id != null ? String(row.id) : null,
+          moduleId: row.moduleid != null ? String(row.moduleid) : null,
+          modelName: row.modelname || null,
+          displayName: row.displayname || row.modelname || null,
+        },
+      ]).filter(([key]) => key !== null)
+    )
+
+    for (const diagram of diagramsResult.rows) {
+      const activeModuleKey = diagram.activeModule != null ? String(diagram.activeModule) : null
+      const viewModel = activeModuleKey ? viewModelMap.get(activeModuleKey) : null
+      const moduleId = viewModel?.moduleId || null
+      const bucket = moduleId && moduleMap.has(moduleId) ? moduleMap.get(moduleId) : unassignedBucket
+
+      bucket.diagrams.push({
+        id: diagram.id,
+        name: diagram.name,
+        createdAt: diagram.createdAt,
+        updatedAt: diagram.updatedAt,
+        activeModuleId: activeModuleKey,
+        viewModelId: viewModel?.id ?? null,
+        viewModelDisplayName: viewModel?.displayName ?? null,
+        moduleId,
+      })
+    }
+
+    const responsePayload = modules
+      .map((module) => ({
+        ...module,
+        diagramCount: module.diagrams.length,
+      }))
+    if (unassignedBucket.diagrams.length > 0 || responsePayload.length === 0) {
+      responsePayload.push({
+        ...unassignedBucket,
+        diagramCount: unassignedBucket.diagrams.length,
+      })
+    }
+
+    res.json({
+      modules: responsePayload,
+      totals: {
+        moduleCount: modules.length,
+        diagramCount: diagramsResult.rows.length,
+        unassignedCount: unassignedBucket.diagrams.length,
+      },
+    })
+  } catch (e) {
+    console.error('Failed to build dashboard modules:', e)
+    res.status(500).json({ error: 'Failed to load dashboard modules' })
+  }
+})
+
 // Get single diagram
 app.get('/api/diagrams/:id', authRequired, async (req, res) => {
   try {
