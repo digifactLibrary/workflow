@@ -375,7 +375,11 @@ const FlowStatisticsDashboard: React.FC<FlowStatisticsDashboardProps> = ({
               </div>
             </CardHeader>
             <CardContent>
-              <FlowVisualization nodeStatistics={statistics.nodeStatistics} edges={statistics.edges} />
+              <FlowVisualization
+                nodeStatistics={statistics.nodeStatistics}
+                edges={statistics.edges}
+                recentActivity={statistics.recentActivity}
+              />
             </CardContent>
           </Card>
 

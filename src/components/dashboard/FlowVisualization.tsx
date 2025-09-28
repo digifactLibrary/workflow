@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { Badge } from '../ui/badge';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
-import type { NodeStatistics, EdgeStatistics } from '../../types/dashboard';
+import type { NodeStatistics, EdgeStatistics, ActivitySummary } from '../../types/dashboard';
 import FlowChartVisualization from './FlowChartVisualization';
 
 interface FlowVisualizationProps {
   nodeStatistics: NodeStatistics[];
   edges?: EdgeStatistics[];
+  recentActivity?: ActivitySummary[];
 }
 
 type ViewMode = 'cards' | 'flowchart';
@@ -27,7 +28,7 @@ const nodeTypes = [
   { type: 'end', label: 'End', color: '#f43f5e', icon: '⏹' }
 ];
 
-const FlowVisualization: React.FC<FlowVisualizationProps> = ({ nodeStatistics, edges = [] }) => {
+const FlowVisualization: React.FC<FlowVisualizationProps> = ({ nodeStatistics, edges = [], recentActivity = [] }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('flowchart');
   
   const getNodeTypeInfo = (nodeType: string) => {
@@ -296,7 +297,11 @@ const FlowVisualization: React.FC<FlowVisualizationProps> = ({ nodeStatistics, e
       ) : (
         /* Flow Chart View */
         <div className="border rounded-lg bg-white">
-          <FlowChartVisualization nodeStatistics={nodeStatistics} edges={edges} />
+          <FlowChartVisualization
+            nodeStatistics={nodeStatistics}
+            edges={edges}
+            activities={recentActivity}
+          />
         </div>
       )}
     </div>

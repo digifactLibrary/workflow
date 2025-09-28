@@ -3,11 +3,12 @@ import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState,
 import type { NodeTypes } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Badge } from '../ui/badge';
-import type { NodeStatistics, EdgeStatistics } from '../../types/dashboard';
+import type { NodeStatistics, EdgeStatistics, ActivitySummary } from '../../types/dashboard';
 
 interface FlowChartVisualizationProps {
   nodeStatistics: NodeStatistics[];
   edges?: EdgeStatistics[];
+  activities?: ActivitySummary[];
 }
 
 const nodeTypes = [
@@ -410,11 +411,43 @@ const nodeTypesMap: NodeTypes = {
   statisticsNode: StatisticsNode,
 };
 
-const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeStatistics, edges: edgeStatistics = [] }) => {
+const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeStatistics, edges: edgeStatistics = [], activities = [] }) => {
+  const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
+
   const getNodeTypeInfo = (nodeType: string) => {
     const nodeTypeInfo = nodeTypes.find(type => type.type === nodeType);
     return nodeTypeInfo || { label: nodeType, color: '#6b7280', icon: '□' };
   };
+
+  const selectedNodeStats = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return nodeStatistics.find((node) => node.nodeId === selectedNodeId) || null;
+  }, [selectedNodeId, nodeStatistics]);
+
+  const selectedNodeTypeInfo = useMemo(() => {
+    if (!selectedNodeStats) return null;
+    return getNodeTypeInfo(selectedNodeStats.nodeType);
+  }, [selectedNodeStats]);
+
+  const filteredActivities = useMemo(() => {
+    if (!selectedNodeId || activities.length === 0) return [] as ActivitySummary[];
+    return activities.filter((activity) => activity.nodeId === selectedNodeId);
+  }, [activities, selectedNodeId]);
+
+  const sortedActivities = useMemo(() => {
+    if (filteredActivities.length === 0) return [] as ActivitySummary[];
+    return [...filteredActivities].sort((a, b) => {
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
+  }, [filteredActivities]);
+
+  const formatTimestamp = useCallback((timestamp: string) => {
+    try {
+      return new Date(timestamp).toLocaleString();
+    } catch (error) {
+      return timestamp;
+    }
+  }, []);
 
   // Generate cache key based on diagram (use first nodeId as identifier)
   const cacheKey = `flow-positions-${nodeStatistics[0]?.nodeId.split('-')[0] || 'default'}`;
@@ -554,6 +587,50 @@ const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeSta
     setEdges(initialEdges);
   }, [initialEdges, setEdges]);
 
+  // Reset selection if the selected node is no longer present
+  React.useEffect(() => {
+    if (selectedNodeId && !nodeStatistics.some((node) => node.nodeId === selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+  }, [nodeStatistics, selectedNodeId]);
+
+  const handleNodeClick = useCallback((_: any, node: any) => {
+    setSelectedNodeId(node.id);
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const statusBadgeClass = useCallback((status: ActivitySummary['status']) => {
+    switch (status) {
+      case 'active':
+        return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      case 'completed':
+        return 'bg-green-100 text-green-700 border-green-200';
+      case 'error':
+        return 'bg-red-100 text-red-700 border-red-200';
+      case 'waiting':
+        return 'bg-purple-100 text-purple-700 border-purple-200';
+      default:
+        return 'bg-gray-100 text-gray-600 border-gray-200';
+    }
+  }, []);
+
+  const formatDurationMs = useCallback((ms?: number) => {
+    if (ms === undefined || ms === null) return '';
+    if (ms < 1000) return `${ms} ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+    if (ms < 3600000) return `${(ms / 60000).toFixed(1)} m`;
+    return `${(ms / 3600000).toFixed(1)} h`;
+  }, []);
+
   const defaultViewport = { x: 0, y: 0, zoom: 0.8 };
 
   return (
@@ -570,41 +647,154 @@ const FlowChartVisualization: React.FC<FlowChartVisualizationProps> = ({ nodeSta
         </div>
       </div>
       
-      <div style={{ width: '100%', height: '600px' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypesMap}
-          defaultViewport={defaultViewport}
-          fitView
-          attributionPosition="bottom-left"
-          proOptions={{ hideAttribution: true }}
-          nodesDraggable={true}
-          nodesConnectable={false}
-          elementsSelectable={true}
-          connectOnClick={false}
-          deleteKeyCode={null}
-        >
-          <Background color="#f1f5f9" gap={16} />
-          <Controls />
-          <MiniMap 
-            nodeColor={(node) => {
-              const nodeStats = nodeStatistics.find(n => n.nodeId === node.id);
-              if (!nodeStats) return '#d1d5db';
-              
-              const totalActive = nodeStats.currentActiveCount + nodeStats.pendingCount + nodeStats.waitingCount;
-              if (totalActive > 10) return '#ef4444';
-              if (totalActive > 3) return '#f59e0b';
-              if (totalActive > 0) return '#3b82f6';
-              return '#d1d5db';
-            }}
-            maskColor="rgba(0, 0, 0, 0.1)"
-            pannable
-            zoomable
-          />
-        </ReactFlow>
+      <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex-1 min-w-0" style={{ height: '600px' }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypesMap}
+            defaultViewport={defaultViewport}
+            fitView
+            attributionPosition="bottom-left"
+            proOptions={{ hideAttribution: true }}
+            nodesDraggable={true}
+            nodesConnectable={false}
+            elementsSelectable={true}
+            connectOnClick={false}
+            deleteKeyCode={null}
+            onNodeClick={handleNodeClick}
+            onPaneClick={handlePaneClick}
+          >
+            <Background color="#f1f5f9" gap={16} />
+            <Controls />
+            <MiniMap 
+              nodeColor={(node) => {
+                const nodeStats = nodeStatistics.find(n => n.nodeId === node.id);
+                if (!nodeStats) return '#d1d5db';
+                
+                const totalActive = nodeStats.currentActiveCount + nodeStats.pendingCount + nodeStats.waitingCount;
+                if (totalActive > 10) return '#ef4444';
+                if (totalActive > 3) return '#f59e0b';
+                if (totalActive > 0) return '#3b82f6';
+                return '#d1d5db';
+              }}
+              maskColor="rgba(0, 0, 0, 0.1)"
+              pannable
+              zoomable
+            />
+          </ReactFlow>
+        </div>
+
+        {selectedNodeStats && (
+          <div
+            className="w-full lg:w-80 xl:w-96 border border-gray-200 rounded-lg bg-white shadow-sm p-4"
+            style={{ maxHeight: '600px' }}
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center space-x-3">
+                <span
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-lg font-bold text-white shadow"
+                  style={{ backgroundColor: selectedNodeTypeInfo?.color || '#1f2937' }}
+                >
+                  {selectedNodeTypeInfo?.icon || '□'}
+                </span>
+                <div>
+                  <div className="text-sm font-semibold text-gray-800">
+                    {selectedNodeStats.nodeLabel || selectedNodeStats.nodeType}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {selectedNodeTypeInfo?.label || 'Node'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-xs text-blue-600 hover:text-blue-700"
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-4 text-xs">
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                <div className="text-[11px] uppercase text-gray-500">Active</div>
+                <div className="text-lg font-semibold text-blue-600">
+                  {selectedNodeStats.currentActiveCount}
+                </div>
+              </div>
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                <div className="text-[11px] uppercase text-gray-500">Pending</div>
+                <div className="text-lg font-semibold text-yellow-600">
+                  {selectedNodeStats.pendingCount}
+                </div>
+              </div>
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                <div className="text-[11px] uppercase text-gray-500">Waiting</div>
+                <div className="text-lg font-semibold text-purple-600">
+                  {selectedNodeStats.waitingCount}
+                </div>
+              </div>
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                <div className="text-[11px] uppercase text-gray-500">Processed</div>
+                <div className="text-lg font-semibold text-green-600">
+                  {selectedNodeStats.totalProcessedCount}
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-medium text-gray-700">Hoạt động theo node</div>
+              <Badge variant="outline" className="text-xs">
+                {sortedActivities.length} records
+              </Badge>
+            </div>
+
+            <div className="space-y-2 overflow-y-auto pr-1" style={{ maxHeight: '360px' }}>
+              {sortedActivities.length === 0 ? (
+                <div className="text-sm text-gray-500">
+                  Không có activity nào gắn với node này.
+                </div>
+              ) : (
+                sortedActivities.map((activity, index) => (
+                  <div
+                    key={`${activity.instanceId}-${activity.timestamp}-${index}`}
+                    className="border border-gray-200 rounded-md bg-gray-50 p-3"
+                  >
+                    <div className="flex items-center justify-between text-xs font-medium text-gray-700">
+                      <span className="capitalize">{activity.status}</span>
+                      <span className="text-gray-500">{formatTimestamp(activity.timestamp)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <Badge variant="outline" className={`text-[11px] capitalize ${statusBadgeClass(activity.status)}`}>
+                        {activity.status}
+                      </Badge>
+                      {activity.processingTime !== undefined && activity.processingTime !== null && (
+                        <span className="text-[11px] text-gray-500">
+                          {formatDurationMs(activity.processingTime)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 space-y-1 text-[11px] text-gray-600">
+                      <div>Instance: <span className="font-medium">{activity.instanceId}</span></div>
+                      {activity.startMappingId && (
+                        <div>Mapping: <span className="font-medium">{activity.startMappingId}</span></div>
+                      )}
+                      {activity.startObjectId && (
+                        <div>Object: <span className="font-medium">{activity.startObjectId}</span></div>
+                      )}
+                      {activity.userName && (
+                        <div>Người xử lý: <span className="font-medium">{activity.userName}</span></div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
