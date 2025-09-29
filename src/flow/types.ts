@@ -118,6 +118,8 @@ export type DiagramWithRelations = {
   createdAt: string
   updatedAt: string
   ownerId: string
+  activeModule?: string | number
+  approval?: boolean
   objects: DiagramObject[]
   connections: DiagramConnection[]
 }

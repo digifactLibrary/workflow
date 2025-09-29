@@ -178,6 +178,10 @@ export function DetailBar() {
     options?.triggerModuleOptions || []
   , [options?.triggerModuleOptions])
   
+  const diagramModuleOptions = useMemo(() => 
+    options?.diagramModuleOptions || []
+  , [options?.diagramModuleOptions])
+  
   const sendKindOptions = useMemo(() => {
     if (!options || !options.sendKindOptions) return []
     return options.sendKindOptions.map(option => ({
@@ -251,7 +255,8 @@ export function DetailBar() {
   }, [])
 
   const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  // Memorize các kết quả filter để tránh tính toán lại không cần thiết
+  
+  // Memorize các kết quả filter cho trigger modules (cr04viewmodelmapping)
   const filteredModules = useMemo(() => {
     const q = moduleQuery.trim()
     if (!q) return triggerModuleOptions || []
@@ -259,6 +264,15 @@ export function DetailBar() {
     const nq = normalize(q)
     return triggerModuleOptions.filter((m) => normalize(m.label || '').includes(nq))
   }, [moduleQuery, triggerModuleOptions])
+  
+  // Memorize các kết quả filter cho diagram modules (cr06modulemapping)
+  const filteredDiagramModules = useMemo(() => {
+    const q = moduleQuery.trim()
+    if (!q) return diagramModuleOptions || []
+    if (!diagramModuleOptions || diagramModuleOptions.length === 0) return []
+    const nq = normalize(q)
+    return diagramModuleOptions.filter((m) => normalize(m.label || '').includes(nq))
+  }, [moduleQuery, diagramModuleOptions])
   
   // Set initial module query when node changes
   useEffect(() => {
@@ -932,15 +946,15 @@ export function DetailBar() {
                 id="diagram-module-options"
                 className="absolute z-10 w-full mt-1 bg-white border border-input rounded-md shadow-lg max-h-40 overflow-auto hidden"
               >
-                {filteredModules.length > 0 ? (
-                  filteredModules.map(opt => (
+                {filteredDiagramModules.length > 0 ? (
+                  filteredDiagramModules.map(opt => (
                     <div
                       key={opt.value}
                       className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
                         activeDiagramDetails?.mappingId === (opt as any)?.id ? 'bg-muted' : ''
                       }`}
                       onClick={() => {
-                        const selectedOption = triggerModuleOptions.find(o => o.value === opt.value);
+                        const selectedOption = diagramModuleOptions.find(o => o.value === opt.value);
                         setDiagramDetails({ triggerModule: opt.value, mappingId: selectedOption?.id || '' })
                         setModuleQuery(opt.label)
                         document.getElementById('diagram-module-options')?.classList.add('hidden')
@@ -958,7 +972,11 @@ export function DetailBar() {
               <div className="mt-2 text-xs">
                 <span className="text-muted-foreground">Module đã chọn: </span>
                 <span className="font-medium">
-                  {triggerModuleOptions.find(opt => (opt as any).id === activeDiagramDetails?.mappingId)?.label || 'Unknown'}
+                  {(() => {
+                    const found = diagramModuleOptions.find(opt => String(opt.id) === String(activeDiagramDetails?.mappingId));
+                    
+                    return found?.label || 'Unknown';
+                  })()}
                 </span>
               </div>
             )}

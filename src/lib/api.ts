@@ -42,6 +42,7 @@ export interface OptionItem {
 export interface NodeOptions {
   triggerEventOptions: OptionItem[];
   triggerModuleOptions: OptionItem[];
+  diagramModuleOptions: OptionItem[];
   sendKindOptions: OptionItem[];
   humanPersonTypeOptions: OptionItem[];
   humanPeopleOptions: OptionItem[];

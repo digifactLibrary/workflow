@@ -27,6 +27,11 @@ const defaultOptions: NodeOptions = {
     { id: 'default_4', value: 'customer_list', label: 'Danh sách khách hàng' },
     { id: 'default_5', value: 'order_list', label: 'Danh sách đơn hàng' },
   ],
+  diagramModuleOptions: [
+    { id: 'default_1', value: 'Module A', label: 'Module A' },
+    { id: 'default_2', value: 'Module B', label: 'Module B' },
+    { id: 'default_3', value: 'Module C', label: 'Module C' },
+  ],
   sendKindOptions: [
     { id: 'default_1', value: 'Email', label: 'Email', icon: 'Mail' },
     { id: 'default_2', value: 'Notification', label: 'Notification in app', icon: 'Bell' },

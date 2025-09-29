@@ -32,7 +32,7 @@ type WorkspaceState = {
   ui: { showDashboard: boolean; showPalette: boolean; showDetailBar: boolean; canvasFullscreen: boolean }
   loaded: boolean
   loadAll: () => Promise<void>
-  create: (name?: string, initial?: DiagramData) => Promise<string>
+  create: (name?: string, initial?: DiagramData, activeModuleId?: string) => Promise<string>
   open: (id: string) => Promise<void>
   rename: (id: string, name: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -112,19 +112,29 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     set((s) => ({ diagrams, order, loaded: true, ui: { ...s.ui, showDashboard: diagrams && Object.keys(diagrams).length === 0 } }))
   },
 
-  create: async (name = 'Sơ đồ mới', initial = { nodes: [], edges: [] }) => {
+  create: async (name = 'Sơ đồ mới', initial = { nodes: [], edges: [] }, activeModuleId?: string) => {
     const res = await fetch('/api/diagrams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ name, data: initial }),
+      body: JSON.stringify({ 
+        name, 
+        data: initial,
+        activeModule: activeModuleId ? parseInt(activeModuleId) : null
+      }),
     })
     if (!res.ok) throw new Error('Create failed')
-    const d = (await res.json()) as { id: string; name: string; createdAt: string | number; updatedAt: string | number }
+    const d = (await res.json()) as { id: string; name: string; createdAt: string | number; updatedAt: string | number; activeModule?: number; approval?: boolean }
     const createdAt = typeof d.createdAt === 'string' ? Date.parse(d.createdAt) : (d.createdAt as number)
     const updatedAt = typeof d.updatedAt === 'string' ? Date.parse(d.updatedAt) : (d.updatedAt as number)
     
     const { objects, connections } = diagramDataToSeparateTables(initial, d.id)
+    
+    // Tạo details từ activeModule response
+    const details: DiagramDetails | undefined = d.activeModule ? {
+      mappingId: String(d.activeModule),
+      approval: d.approval
+    } : undefined
     
     set((s) => ({
       diagrams: { 
@@ -135,7 +145,8 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
           createdAt, 
           updatedAt, 
           objects, 
-          connections 
+          connections,
+          details 
         } 
       },
       order: [d.id, ...s.order],
@@ -248,7 +259,9 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     }
     
     const newName = `${src.name} - bản sao`
-    return await get().create(newName, diagramData)
+    // Giữ nguyên activeModule từ diagram gốc
+    const activeModuleId = src.activeModule ? String(src.activeModule) : undefined
+    return await get().create(newName, diagramData, activeModuleId)
   },
 
   saveActiveFromFlow: async () => {

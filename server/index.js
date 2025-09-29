@@ -600,9 +600,9 @@ app.get('/api/dashboard/modules', authRequired, async (req, res) => {
 
     for (const diagram of diagramsResult.rows) {
       const activeModuleKey = diagram.activeModule != null ? String(diagram.activeModule) : null
-      const viewModel = activeModuleKey ? viewModelMap.get(activeModuleKey) : null
-      const moduleId = viewModel?.moduleId || null
-      const bucket = moduleId && moduleMap.has(moduleId) ? moduleMap.get(moduleId) : unassignedBucket
+      
+      // Thay đổi logic: active_module bây giờ trực tiếp là id từ cr06modulemapping
+      const bucket = activeModuleKey && moduleMap.has(activeModuleKey) ? moduleMap.get(activeModuleKey) : unassignedBucket
 
       bucket.diagrams.push({
         id: diagram.id,
@@ -610,9 +610,9 @@ app.get('/api/dashboard/modules', authRequired, async (req, res) => {
         createdAt: diagram.createdAt,
         updatedAt: diagram.updatedAt,
         activeModuleId: activeModuleKey,
-        viewModelId: viewModel?.id ?? null,
-        viewModelDisplayName: viewModel?.displayName ?? null,
-        moduleId,
+        viewModelId: null, // Không còn sử dụng viewModel
+        viewModelDisplayName: null, // Không còn sử dụng viewModel
+        moduleId: activeModuleKey, // Trực tiếp là id từ cr06modulemapping
       })
     }
 
@@ -1513,13 +1513,23 @@ app.get('/api/options', async (req, res) => {
       ORDER BY name
     `).catch(() => ({ rows: [] }));
     
-    // PHẦN 2: LẤY DỮ LIỆU MODULE
+    // PHẦN 2: LẤY DỮ LIỆU MODULE CHO TRIGGER (cr04viewmodelmapping)
     const moduleOptionsResult = await db.query(`
       SELECT 
         id,
         modelname as value,
         displayname as label
       FROM section0.cr04viewmodelmapping 
+      ORDER BY displayname
+    `).catch(() => ({ rows: [] }));
+    
+    // PHẦN 2.1: LẤY DỮ LIỆU MODULE CHO DIAGRAM (cr06modulemapping)
+    const diagramModuleOptionsResult = await db.query(`
+      SELECT 
+        id,
+        displayname as value,
+        displayname as label
+      FROM section0.cr06modulemapping 
       ORDER BY displayname
     `).catch(() => ({ rows: [] }));
     
@@ -1587,6 +1597,14 @@ app.get('/api/options', async (req, res) => {
             { id: 'default_3', value: 'quote_list', label: 'Danh sách báo giá' },
             { id: 'default_4', value: 'customer_list', label: 'Danh sách khách hàng' },
             { id: 'default_5', value: 'order_list', label: 'Danh sách đơn hàng' },
+          ],
+      
+      diagramModuleOptions: diagramModuleOptionsResult.rows.length > 0 
+        ? diagramModuleOptionsResult.rows.map(row => ({ id: row.id, value: row.value, label: row.label }))
+        : [
+            { id: 'default_1', value: 'Module A', label: 'Module A' },
+            { id: 'default_2', value: 'Module B', label: 'Module B' },
+            { id: 'default_3', value: 'Module C', label: 'Module C' },
           ],
       
       sendKindOptions: sendKindOptionsResult.rows.length > 0 

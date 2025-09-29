@@ -149,15 +149,20 @@ export function Dashboard() {
 
   const handleCreateDiagram = useCallback(async () => {
     try {
-      await create()
+      // Lấy activeModuleId từ module hiện tại
+      const activeModuleId = activeModule?.id !== 'unassigned' ? activeModule?.id : undefined
+      await create('Sơ đồ mới', undefined, activeModuleId)
       await refreshModules()
       if (mountedRef.current) {
-        navigate(`/${UNASSIGNED_PATH}`)
+        // Nếu có activeModuleId thì giữ nguyên trang, không thì chuyển về unassigned
+        if (!activeModuleId) {
+          navigate(`/${UNASSIGNED_PATH}`)
+        }
       }
     } catch (error) {
       console.error('Failed to create diagram:', error)
     }
-  }, [create, refreshModules, navigate])
+  }, [create, refreshModules, navigate, activeModule?.id])
 
   const handleDuplicate = useCallback(async (id: string) => {
     try {
