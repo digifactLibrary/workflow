@@ -9,6 +9,8 @@ export type DiagramDetails = {
   // Diagram-level active module and its mapping id
   triggerModule?: string
   mappingId?: string
+  // SubModule from cr04viewmodelmapping
+  subModuleId?: string
   // Approval required for the whole diagram (Có/Không)
   approval?: boolean
 }
@@ -276,6 +278,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       body: JSON.stringify({ 
         data: { nodes, edges }, 
         activeModule: details?.mappingId ? parseInt(String(details.mappingId)) : null, 
+        subModule: details?.subModuleId ? parseInt(String(details.subModuleId)) : null,
         approval: typeof details?.approval === 'boolean' ? details?.approval : null 
       }),
     })

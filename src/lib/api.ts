@@ -189,3 +189,14 @@ export async function triggerWorkflow(payload: TriggerPayload): Promise<TriggerR
     body: JSON.stringify(payload),
   });
 }
+
+/**
+ * Fetch SubModule options based on moduleId
+ */
+export interface SubModuleOptionsResponse {
+  subModuleOptions: OptionItem[];
+}
+
+export async function fetchSubModuleOptions(moduleId: string): Promise<SubModuleOptionsResponse> {
+  return fetchAPI<SubModuleOptionsResponse>(`/submodule-options/${moduleId}`);
+}

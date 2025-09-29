@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFlowStore } from '../state/flowStore'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { useOptionsStore } from '../state/optionsStore'
+import { fetchSubModuleOptions } from '../lib/api'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
@@ -222,6 +223,8 @@ export function DetailBar() {
   const [integrationDbParamsDraft, setIntegrationDbParamsDraft] = useState('')
   const [integrationEnabled, setIntegrationEnabled] = useState(false)
   const [moduleQuery, setModuleQuery] = useState('')
+  const [subModuleQuery, setSubModuleQuery] = useState('')
+  const [subModuleOptions, setSubModuleOptions] = useState<Array<{id: string; value: string; label: string}>>([])
   const [humanPersonQuery, setHumanPersonQuery] = useState('')
   const [humanRoleQuery, setHumanRoleQuery] = useState('')
   const [humanDeptQuery, setHumanDeptQuery] = useState('')
@@ -273,6 +276,15 @@ export function DetailBar() {
     const nq = normalize(q)
     return diagramModuleOptions.filter((m) => normalize(m.label || '').includes(nq))
   }, [moduleQuery, diagramModuleOptions])
+
+  // Memorize các kết quả filter cho SubModule options (cr04viewmodelmapping)
+  const filteredSubModules = useMemo(() => {
+    const q = subModuleQuery.trim()
+    if (!q) return subModuleOptions || []
+    if (!subModuleOptions || subModuleOptions.length === 0) return []
+    const nq = normalize(q)
+    return subModuleOptions.filter((m) => normalize(m.label || '').includes(nq))
+  }, [subModuleQuery, subModuleOptions])
   
   // Set initial module query when node changes
   useEffect(() => {
@@ -286,6 +298,25 @@ export function DetailBar() {
       }
     }
   }, [selectedNode?.id, selectedNode?.type, triggerModuleOptions]);
+
+  // Fetch SubModule options when active module changes
+  useEffect(() => {
+    const fetchSubModules = async () => {
+      if (activeDiagramDetails?.mappingId) {
+        try {
+          const response = await fetchSubModuleOptions(activeDiagramDetails.mappingId);
+          setSubModuleOptions(response.subModuleOptions);
+        } catch (error) {
+          console.error('Failed to fetch submodule options:', error);
+          setSubModuleOptions([]);
+        }
+      } else {
+        setSubModuleOptions([]);
+      }
+    };
+
+    fetchSubModules();
+  }, [activeDiagramDetails?.mappingId]);
 
   const filteredHumanPeople = useMemo(() => {
     const q = humanPersonQuery.trim()
@@ -981,6 +1012,72 @@ export function DetailBar() {
               </div>
             )}
           </div>
+
+          {/* Diagram details: SubModule hoạt động */}
+          {activeDiagramDetails?.mappingId && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium">SubModule hoạt động</div>
+              <div className="relative">
+                <div className="flex w-full items-center space-x-2">
+                  <div className="relative w-full">
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background pr-8"
+                      placeholder="Tìm kiếm và chọn submodule..."
+                      value={subModuleQuery}
+                      onChange={(e) => setSubModuleQuery(e.target.value)}
+                      onFocus={() => document.getElementById('diagram-submodule-options')?.classList.remove('hidden')}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          document.getElementById('diagram-submodule-options')?.classList.add('hidden');
+                        }, 200);
+                      }}
+                    />
+                    {subModuleQuery && (
+                      <button
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                        onClick={() => setSubModuleQuery('')}
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div
+                  id="diagram-submodule-options"
+                  className="absolute z-10 w-full mt-1 bg-white border border-input rounded-md shadow-lg max-h-40 overflow-auto hidden"
+                >
+                  {filteredSubModules.length > 0 ? (
+                    filteredSubModules.map(opt => (
+                      <div
+                        key={opt.value}
+                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
+                          activeDiagramDetails?.subModuleId === opt.id ? 'bg-muted' : ''
+                        }`}
+                        onClick={() => {
+                          setDiagramDetails({ subModuleId: opt.id })
+                          setSubModuleQuery(opt.label)
+                          document.getElementById('diagram-submodule-options')?.classList.add('hidden')
+                        }}
+                      >
+                        {opt.label}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">Không tìm thấy kết quả</div>
+                  )}
+                </div>
+              </div>
+              {(activeDiagramDetails?.subModuleId && subModuleQuery === '') && (
+                <div className="mt-2 text-xs">
+                  <span className="text-muted-foreground">SubModule đã chọn: </span>
+                  <span className="font-medium">
+                    {subModuleOptions.find(opt => opt.id === activeDiagramDetails?.subModuleId)?.label || 'Unknown'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Diagram details: Phê duyệt */}
           <div className="space-y-2">

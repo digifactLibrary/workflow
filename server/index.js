@@ -102,6 +102,7 @@ async function ensureSchema() {
   await db.query('CREATE INDEX IF NOT EXISTS cr07Bdiagrams_owner_id_idx ON section0.cr07Bdiagrams(owner_id)')
   // Diagram-level details columns
   await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS active_module INTEGER')
+  await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS sub_module INTEGER')
   await db.query('ALTER TABLE section0.cr07Bdiagrams ADD COLUMN IF NOT EXISTS approval BOOLEAN DEFAULT false')
   
   // Create notification table for in-app notifications
@@ -312,7 +313,7 @@ async function saveDiagramData(diagramId, data, ownerId = null) {
 async function loadDiagramWithRelations(diagramId) {
   // Get diagram metadata - temporarily show all diagrams
   const diagramResult = await db.query(
-    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data, active_module as "activeModule", approval FROM section0.cr07Bdiagrams WHERE id = $1',
+    'SELECT id, name, created_at as "createdAt", updated_at as "updatedAt", data, active_module as "activeModule", sub_module as "subModule", approval FROM section0.cr07Bdiagrams WHERE id = $1',
     [diagramId]
   )
   
@@ -666,12 +667,13 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
     const name = (req.body?.name || 'Sơ đồ mới').toString()
     const data = req.body?.data ?? { nodes: [], edges: [] }
     const activeModule = req.body?.activeModule ?? null
+    const subModule = req.body?.subModule ?? null
     const approval = typeof req.body?.approval === 'boolean' ? req.body.approval : null
     
     // Create main diagram record
     const r = await db.query(
-      'INSERT INTO section0.cr07Bdiagrams (id, name, data, owner_id, active_module, approval) VALUES ($1, $2, $3, $4, $5, COALESCE($6, false)) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-      [id, name, data, req.userId, activeModule ? parseInt(activeModule) : null, approval]
+      'INSERT INTO section0.cr07Bdiagrams (id, name, data, owner_id, active_module, sub_module, approval) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, false)) RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", sub_module as "subModule", approval',
+      [id, name, data, req.userId, activeModule ? parseInt(activeModule) : null, subModule ? parseInt(subModule) : null, approval]
     )
     
     // Save to new format tables as well
@@ -688,14 +690,14 @@ app.post('/api/diagrams', authRequired, async (req, res) => {
 app.put('/api/diagrams/:id', authRequired, async (req, res) => {
   try {
     const { id } = req.params
-    const { name, data, activeModule, approval } = req.body || {}
-    if (name === undefined && data === undefined && activeModule === undefined && approval === undefined) {
+    const { name, data, activeModule, subModule, approval } = req.body || {}
+    if (name === undefined && data === undefined && activeModule === undefined && subModule === undefined && approval === undefined) {
       return res.status(400).json({ error: 'Nothing to update' })
     }
     if (name !== undefined && data !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, active_module=COALESCE($4, active_module), approval=COALESCE($5, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-        [id, String(name), data, activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
+        'UPDATE section0.cr07Bdiagrams SET name=$2, data=$3, active_module=COALESCE($4, active_module), sub_module=COALESCE($5, sub_module), approval=COALESCE($6, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", sub_module as "subModule", approval',
+        [id, String(name), data, activeModule ? parseInt(activeModule) : null, subModule ? parseInt(subModule) : null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -706,16 +708,16 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     if (name !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET name=$2, active_module=COALESCE($3, active_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-        [id, String(name), activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
+        'UPDATE section0.cr07Bdiagrams SET name=$2, active_module=COALESCE($3, active_module), sub_module=COALESCE($4, sub_module), approval=COALESCE($5, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", sub_module as "subModule", approval',
+        [id, String(name), activeModule ? parseInt(activeModule) : null, subModule ? parseInt(subModule) : null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       return res.json(r.rows[0])
     }
     if (data !== undefined) {
       const r = await db.query(
-        'UPDATE section0.cr07Bdiagrams SET data=$2, active_module=COALESCE($3, active_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-        [id, data, activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
+        'UPDATE section0.cr07Bdiagrams SET data=$2, active_module=COALESCE($3, active_module), sub_module=COALESCE($4, sub_module), approval=COALESCE($5, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", sub_module as "subModule", approval',
+        [id, data, activeModule ? parseInt(activeModule) : null, subModule ? parseInt(subModule) : null, typeof approval === 'boolean' ? approval : null]
       )
       if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
       
@@ -726,8 +728,8 @@ app.put('/api/diagrams/:id', authRequired, async (req, res) => {
     }
     // Only diagram-level details updated
     const r = await db.query(
-      'UPDATE section0.cr07Bdiagrams SET active_module=COALESCE($2, active_module), approval=COALESCE($3, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", approval',
-      [id, activeModule ? parseInt(activeModule) : null, typeof approval === 'boolean' ? approval : null]
+      'UPDATE section0.cr07Bdiagrams SET active_module=COALESCE($2, active_module), sub_module=COALESCE($3, sub_module), approval=COALESCE($4, approval), updated_at=now() WHERE id=$1 RETURNING id, name, created_at as "createdAt", updated_at as "updatedAt", active_module as "activeModule", sub_module as "subModule", approval',
+      [id, activeModule ? parseInt(activeModule) : null, subModule ? parseInt(subModule) : null, typeof approval === 'boolean' ? approval : null]
     )
     if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' })
     return res.json(r.rows[0])
@@ -1649,6 +1651,33 @@ app.get('/api/options', async (req, res) => {
   } catch (e) {
     console.error('Failed to fetch options:', e);
     res.status(500).json({ error: 'Failed to fetch options' });
+  }
+});
+
+// API endpoint to fetch SubModule options based on moduleId
+app.get('/api/submodule-options/:moduleId', async (req, res) => {
+  try {
+    const { moduleId } = req.params;
+    
+    // Lấy danh sách SubModule từ cr04viewmodelmapping WHERE moduleid = moduleId
+    const subModuleOptionsResult = await db.query(`
+      SELECT 
+        id,
+        modelname as value,
+        displayname as label
+      FROM section0.cr04viewmodelmapping 
+      WHERE moduleid = $1
+      ORDER BY displayname
+    `, [moduleId]).catch(() => ({ rows: [] }));
+    
+    const subModuleOptions = subModuleOptionsResult.rows.length > 0 
+      ? subModuleOptionsResult.rows.map(row => ({ id: row.id, value: row.value, label: row.label }))
+      : [];
+    
+    res.json({ subModuleOptions });
+  } catch (e) {
+    console.error('Failed to fetch submodule options:', e);
+    res.status(500).json({ error: 'Failed to fetch submodule options' });
   }
 });
 
