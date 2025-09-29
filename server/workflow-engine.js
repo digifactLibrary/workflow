@@ -1153,7 +1153,7 @@ class WorkflowEngine {
       await client.query(
         `INSERT INTO section0.cr08cnode_approvals
         (id, node_state_id, user_id, status)
-        VALUES ($1, $2, $3, 'pending')`,
+        VALUES ($1, $2, $3, 'to approve')`,
         [`na_${uuidv4()}`, nodeStateId, parseInt(userId, 10)]
       )
     }
@@ -1199,7 +1199,7 @@ class WorkflowEngine {
           WHERE ns.workflow_instance_id = $1
             AND ns.status = 'waiting'
             AND na.user_id = $2
-            AND na.status = 'pending'
+            AND na.status = 'to approve'
           LIMIT 1`,
         [workflowInstanceId, userIdInt]
       )
@@ -1319,7 +1319,7 @@ class WorkflowEngine {
         await client.query(
           `UPDATE section0.cr08cnode_approvals
            SET status = 'canceled', updated_at = now()
-           WHERE node_state_id = $1 AND status = 'pending'`,
+           WHERE node_state_id = $1 AND status = 'to approve'`,
           [nodeState.id]
         )
         
