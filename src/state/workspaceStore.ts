@@ -132,9 +132,10 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     
     const { objects, connections } = diagramDataToSeparateTables(initial, d.id)
     
-    // Tạo details từ activeModule response
-    const details: DiagramDetails | undefined = d.activeModule ? {
-      mappingId: String(d.activeModule),
+    // Tạo details từ activeModule và subModule response
+    const details: DiagramDetails | undefined = (d.activeModule || (d as any).subModule) ? {
+      mappingId: d.activeModule ? String(d.activeModule) : undefined,
+      subModuleId: (d as any).subModule ? String((d as any).subModule) : undefined,
       approval: d.approval
     } : undefined
     
@@ -199,6 +200,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
           // Extract diagram-level details from dedicated columns; fall back to legacy data.details if present
           details: {
             mappingId: (response as any)?.activeModule ?? (response?.data as any)?.details?.mappingId ?? s.diagrams[id]?.details?.mappingId,
+            subModuleId: (response as any)?.subModule ? String((response as any).subModule) : (response?.data as any)?.details?.subModuleId ?? s.diagrams[id]?.details?.subModuleId,
             approval: (response as any)?.approval ?? (response?.data as any)?.details?.approval ?? s.diagrams[id]?.details?.approval,
           }
         } 

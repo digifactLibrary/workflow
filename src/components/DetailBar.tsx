@@ -318,6 +318,18 @@ export function DetailBar() {
     fetchSubModules();
   }, [activeDiagramDetails?.mappingId]);
 
+  // Reset subModule query when diagram changes or when subModuleId is already set
+  useEffect(() => {
+    if (activeDiagramDetails?.subModuleId && subModuleOptions.length > 0) {
+      const selectedSubModule = subModuleOptions.find(opt => opt.id === activeDiagramDetails.subModuleId);
+      if (selectedSubModule) {
+        setSubModuleQuery(''); // Clear query to show the selected item below
+      }
+    } else {
+      setSubModuleQuery('');
+    }
+  }, [activeDiagramDetails?.subModuleId, subModuleOptions]);
+
   const filteredHumanPeople = useMemo(() => {
     const q = humanPersonQuery.trim()
     if (!q) return humanPeopleOptions || []
@@ -1052,7 +1064,7 @@ export function DetailBar() {
                       <div
                         key={opt.value}
                         className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
-                          activeDiagramDetails?.subModuleId === opt.id ? 'bg-muted' : ''
+                          String(activeDiagramDetails?.subModuleId) === String(opt.id) ? 'bg-muted' : ''
                         }`}
                         onClick={() => {
                           setDiagramDetails({ subModuleId: opt.id })
@@ -1072,7 +1084,11 @@ export function DetailBar() {
                 <div className="mt-2 text-xs">
                   <span className="text-muted-foreground">SubModule đã chọn: </span>
                   <span className="font-medium">
-                    {subModuleOptions.find(opt => opt.id === activeDiagramDetails?.subModuleId)?.label || 'Unknown'}
+                    {subModuleOptions.length > 0 ? (
+                      subModuleOptions.find(opt => String(opt.id) === String(activeDiagramDetails?.subModuleId))?.label || 'Unknown'
+                    ) : (
+                      'Đang tải...'
+                    )}
                   </span>
                 </div>
               )}
