@@ -273,9 +273,11 @@ export function Dashboard() {
                     </Button>
                   </div>
                   <div className="mb-3">
-                    <Badge variant="outline" className="mb-2 w-fit text-[0.65rem] uppercase tracking-wide">
-                      {diagram.viewModelDisplayName || 'Chưa gán view model'}
-                    </Badge>
+                    {!diagram.activeModuleId && (
+                      <Badge variant="outline" className="mb-2 w-fit text-[0.65rem] uppercase tracking-wide">
+                        Chưa gán module
+                      </Badge>
+                    )}
                     {renamingId === diagram.id ? (
                       <div className="flex items-center gap-2">
                         <Input
