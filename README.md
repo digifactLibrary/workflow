@@ -186,19 +186,23 @@ git checkout previous_commit
 
 ### Environment Variables
 ```bash
-# Database
-PGHOST=localhost
-PGPORT=5432  
-PGUSER=postgres
-PGPASSWORD=your_password
-PGDATABASE=workflow_db
+VITE_API_BASE_URL=
+PGHOST=
+PGPORT=
+PGUSER=
+PGPASSWORD=
+PGDATABASE=
 
-# Or connection string
-DATABASE_URL=postgresql://user:pass@host:port/db
+# Optional: Use a single connection string instead of the above.
+# DATABASE_URL=postgres://user:password@host:port/database_name
 
-# Security
-JWT_SECRET=your-secret-key
-NODE_ENV=production
+MAILURL=
+MAILAPIKEY=
+
+SMTPHOST=
+SMTPPORT=
+SMTPUSER=
+SMTPPASSWORD=
 ```
 
 ### Scripts
