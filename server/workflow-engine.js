@@ -257,6 +257,10 @@ class WorkflowEngine {
             // Send nodes execute immediately
             status = 'active'
             break
+          case 'end':
+            // End nodes execute immediately
+            status = 'active'
+            break
             
           default:
             // Other node types are pending by default
@@ -413,6 +417,11 @@ class WorkflowEngine {
     };
 
     await this.updateWorkflowContext(client, workflowInstanceId, nodeStateId, decisionMetadata);
+
+    const currentDecision = {
+      currentDecision: conditionMet ? conditionValue : inputValue
+    }
+    await this.updateWorkflowContext(client, workflowInstanceId, null, currentDecision);
 
     // Find outgoing connections
     const connectionsResult = await client.query(
@@ -677,6 +686,7 @@ class WorkflowEngine {
     // Check if previous node state is trigger node to get input data
     console.log("Debug preNodeStateId:", preNodeStateId);
 
+    // TODO: Refactor to send noti with action based on related nodes
     const preNodeType = await client.query(`
         SELECT o.node_type, o.data
         FROM section0.cr07Cdiagram_objects o
@@ -783,7 +793,7 @@ class WorkflowEngine {
           )`,
           [
             false, // isread
-            parseInt(senderId.toString(), 10), // sender
+            senderId ?? 0, // sender
             parseInt(receiverId.toString(), 10), // receiver
             needAction === true, // isaction
             data.Id || null, // relatedid
@@ -1151,6 +1161,13 @@ class WorkflowEngine {
     
     // Create approval records for each unique user
     const uniqueUserIds = [...new Set(allUserIds)]
+    if (uniqueUserIds.length === 0) {
+      await client.query(
+        `UPDATE section0.cr08anode_states SET status = 'completed' WHERE id = $1`,
+        [nodeStateId]
+      )
+      return
+    }
     for (const userId of uniqueUserIds) {
       await client.query(
         `INSERT INTO section0.cr08cnode_approvals
