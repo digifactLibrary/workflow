@@ -449,7 +449,12 @@ export function DetailBar() {
       if (data.humanPersonsPersonal?.length > 0) {
         resetData.humanPersonsPersonal = data.humanPersonsPersonal
         resetData.humanPersons = data.humanPersonsPersonal
-        resetData.humanIds = data.humanIds || []
+        // Only keep IDs that correspond to personal selections
+        const personalIds = data.humanPersonsPersonal?.map((personValue: string) => {
+          const option = humanPeopleOptions.find(opt => opt.value === personValue)
+          return option?.id || ''
+        }).filter((id: string) => id !== '') || []
+        resetData.humanIds = personalIds
       } else {
         // Initialize with empty arrays
         resetData.humanPersonsPersonal = []
@@ -483,10 +488,13 @@ export function DetailBar() {
         // If both roles and departments exist, preserve role-based people
         resetData.humanPersonsByRole = data.humanPersonsByRole || []
         resetData.humanPersons = data.humanPersonsByRole || []
+        // Reset humanIds to empty since role-based people don't use individual IDs
+        resetData.humanIds = []
       } else {
         // Initialize with empty arrays
         resetData.humanPersonsByRole = []
         resetData.humanPersons = []
+        resetData.humanIds = []
       }
     }
     
@@ -541,7 +549,18 @@ export function DetailBar() {
     const next = current.includes(name) ? current.filter((x) => x !== name) : [...current, name]
     const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
     const union = Array.from(new Set<string>([...personal, ...next]))
-    updateNodeData(selectedNode.id, { humanPersonsByRole: next, humanPersons: union })
+    
+    // For role-based people, we don't maintain individual IDs, so keep only personal IDs
+    const personalIds = personal.map((personValue: string) => {
+      const option = humanPeopleOptions.find(opt => opt.value === personValue)
+      return option?.id || ''
+    }).filter((id: string) => id !== '')
+    
+    updateNodeData(selectedNode.id, { 
+      humanPersonsByRole: next, 
+      humanPersons: union,
+      humanIds: personalIds
+    })
   }
 
   const toggleHumanRole = (name: string) => {
@@ -618,19 +637,57 @@ export function DetailBar() {
 
   const selectAllHumanRoles = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanRoles: humanRoleOptions.map(r => r.value) })
+    const allRoleIds = humanRoleOptions.map(r => r.id).filter(id => id)
+    updateNodeData(selectedNode.id, { 
+      humanRoles: humanRoleOptions.map(r => r.value),
+      humanRoleIds: allRoleIds
+    })
   }
   const clearAllHumanRoles = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanRoles: [] })
+    const data: any = selectedNode.data || {}
+    const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
+    
+    // Keep only personal IDs and clear role-based people
+    const personalIds = personal.map((personValue: string) => {
+      const option = humanPeopleOptions.find(opt => opt.value === personValue)
+      return option?.id || ''
+    }).filter((id: string) => id !== '')
+    
+    updateNodeData(selectedNode.id, { 
+      humanRoles: [],
+      humanRoleIds: [],
+      humanPersonsByRole: [],
+      humanPersons: personal,
+      humanIds: personalIds
+    })
   }
   const selectAllHumanDepts = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanDepartments: humanDepartmentOptions.map(d => d.value) })
+    const allDeptIds = humanDepartmentOptions.map(d => d.id).filter(id => id)
+    updateNodeData(selectedNode.id, { 
+      humanDepartments: humanDepartmentOptions.map(d => d.value),
+      humanDepartmentIds: allDeptIds
+    })
   }
   const clearAllHumanDepts = () => {
     if (!selectedNode) return
-    updateNodeData(selectedNode.id, { humanDepartments: [] })
+    const data: any = selectedNode.data || {}
+    const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
+    
+    // Keep only personal IDs and clear role-based people
+    const personalIds = personal.map((personValue: string) => {
+      const option = humanPeopleOptions.find(opt => opt.value === personValue)
+      return option?.id || ''
+    }).filter((id: string) => id !== '')
+    
+    updateNodeData(selectedNode.id, { 
+      humanDepartments: [],
+      humanDepartmentIds: [],
+      humanPersonsByRole: [],
+      humanPersons: personal,
+      humanIds: personalIds
+    })
   }
   const selectAllPersonalPeople = () => {
     if (!selectedNode) return
@@ -638,14 +695,28 @@ export function DetailBar() {
     const byRole: string[] = (data?.humanPersonsByRole ?? []) as string[]
     const all = humanPeopleOptions.map(p => p.value)
     const union = Array.from(new Set<string>([...all, ...byRole]))
-    updateNodeData(selectedNode.id, { humanPersonsPersonal: all, humanPersons: union })
+    
+    // Get all personal IDs
+    const allPersonalIds = humanPeopleOptions.map(p => p.id).filter(id => id)
+    
+    updateNodeData(selectedNode.id, { 
+      humanPersonsPersonal: all, 
+      humanPersons: union,
+      humanIds: allPersonalIds
+    })
   }
   const clearAllPersonalPeople = () => {
     if (!selectedNode) return
     const data: any = selectedNode.data || {}
     const byRole: string[] = (data?.humanPersonsByRole ?? []) as string[]
     const union = Array.from(new Set<string>([...byRole]))
-    updateNodeData(selectedNode.id, { humanPersonsPersonal: [], humanPersons: union })
+    
+    // Clear all personal IDs
+    updateNodeData(selectedNode.id, { 
+      humanPersonsPersonal: [], 
+      humanPersons: union,
+      humanIds: []
+    })
   }
   const selectAllRolePeople = () => {
     if (!selectedNode) return
@@ -653,14 +724,36 @@ export function DetailBar() {
     const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
     const all = humanPeopleOptions.map(p => p.value)
     const union = Array.from(new Set<string>([...personal, ...all]))
-    updateNodeData(selectedNode.id, { humanPersonsByRole: all, humanPersons: union })
+    
+    // Keep only personal IDs since role people don't use individual IDs
+    const personalIds = personal.map((personValue: string) => {
+      const option = humanPeopleOptions.find(opt => opt.value === personValue)
+      return option?.id || ''
+    }).filter((id: string) => id !== '')
+    
+    updateNodeData(selectedNode.id, { 
+      humanPersonsByRole: all, 
+      humanPersons: union,
+      humanIds: personalIds
+    })
   }
   const clearAllRolePeople = () => {
     if (!selectedNode) return
     const data: any = selectedNode.data || {}
     const personal: string[] = (data?.humanPersonsPersonal ?? []) as string[]
     const union = Array.from(new Set<string>([...personal]))
-    updateNodeData(selectedNode.id, { humanPersonsByRole: [], humanPersons: union })
+    
+    // Keep only personal IDs since role people are cleared
+    const personalIds = personal.map((personValue: string) => {
+      const option = humanPeopleOptions.find(opt => opt.value === personValue)
+      return option?.id || ''
+    }).filter((id: string) => id !== '')
+    
+    updateNodeData(selectedNode.id, { 
+      humanPersonsByRole: [], 
+      humanPersons: union,
+      humanIds: personalIds
+    })
   }
 
   // Sử dụng memo để lưu cache giá trị people options
@@ -691,13 +784,21 @@ export function DetailBar() {
       // Chỉ cập nhật khi cần thiết
       if (JSON.stringify(currentByRole.sort()) !== JSON.stringify(peopleValues.sort())) {
         const union = Array.from(new Set<string>([...personal, ...peopleValues]));
+        
+        // Keep only personal IDs since role people don't use individual IDs
+        const personalIds = personal.map((personValue: string) => {
+          const option = humanPeopleOptions.find(opt => opt.value === personValue)
+          return option?.id || ''
+        }).filter((id: string) => id !== '')
+        
         updateNodeData(node.id, { 
           humanPersonsByRole: peopleValues, 
-          humanPersons: union 
+          humanPersons: union,
+          humanIds: personalIds
         });
       }
     }
-  }, [stableHumanPeopleValues, updateNodeData]);
+  }, [stableHumanPeopleValues, updateNodeData, humanPeopleOptions]);
 
   // Thực hiện kiểm tra khi selectedNode thay đổi
   useEffect(() => {
