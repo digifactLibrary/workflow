@@ -92,10 +92,11 @@ class WorkflowEngine {
          WHERE diagram_id = $1 AND 
          context->>'startMappingId' = $2 AND
          context->>'startObjectId' = $3 AND
+         context->>'startEventName' = $5 AND
          status IN ('active', 'waiting') AND
          started_by = $4
          `,
-        [effectiveDiagramId, mappingId, objectId, userId]
+        [effectiveDiagramId, mappingId, objectId, userId, eventName]
       );
 
       if (activeInstanceResult.rows.length > 0) {
@@ -108,7 +109,8 @@ class WorkflowEngine {
       const workflowInstanceId = `wf_${uuidv4()}`
       const enrichedContext = { 
         startMappingId: mappingId,
-        startObjectId: objectId
+        startObjectId: objectId,
+        startEventName: eventName
       };
       await client.query(
         `INSERT INTO section0.cr08workflow_instances
