@@ -6,7 +6,7 @@ type User = {
   id: number
   email: string
   name?: string | null
-  code?: string | null // manhanvien field
+  code?: string | null // code field
 }
 
 type AuthState = {

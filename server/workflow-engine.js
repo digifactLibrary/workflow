@@ -598,11 +598,11 @@ class WorkflowEngine {
     let senderName = 'System'
     try {
       const senderResult = await client.query(
-        `SELECT hoten FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
+        `SELECT name FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
         [senderId]
       )
       if (senderResult.rows.length > 0) {
-        senderName = senderResult.rows[0].hoten
+        senderName = senderResult.rows[0].name
       }
     } catch (error) {
       console.warn('Could not fetch sender name:', error)
@@ -730,7 +730,10 @@ class WorkflowEngine {
           : '';
         // Xác định objectDisplayName từ dữ liệu
         let objectDisplayName = '';
-        if (inputData.Code && inputData.Name) {
+        if (inputData.DisplayName)
+        {
+          objectDisplayName = inputData.DisplayName;
+        } else if (inputData.Code && inputData.Name) {
           objectDisplayName = `[${inputData.Code}] ${inputData.Name}`;
         } else if (inputData.Name) {
           objectDisplayName = inputData.Name;
@@ -1077,7 +1080,7 @@ class WorkflowEngine {
   async getNumberOfUsersInRoles(client, roleIds) {
     if (!roleIds || roleIds.length === 0) return 0
     const result = await client.query(
-      `SELECT COUNT(DISTINCT id, manhanvien) as count
+      `SELECT COUNT(DISTINCT id, code) as count
         FROM section9nhansu.ns01taikhoannguoidung
         WHERE recordidchucdanh = ANY($1)`,
       [roleIds]
@@ -1087,10 +1090,10 @@ class WorkflowEngine {
 
   async getUserNameById(client, userId) {
     const result = await client.query(
-      `SELECT hoten FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
+      `SELECT name FROM section9nhansu.ns01taikhoannguoidung WHERE id = $1`,
       [parseInt(userId, 10)]
     )
-    return result.rows.length > 0 ? result.rows[0].hoten : null
+    return result.rows.length > 0 ? result.rows[0].name : null
   }
 
   /**

@@ -64,7 +64,7 @@ export interface User {
   id: number;
   email: string;
   name?: string;
-  code?: string; // manhanvien field
+  code?: string; // code field
 }
 
 export async function login(username: string, password: string): Promise<User> {

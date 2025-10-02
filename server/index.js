@@ -486,7 +486,7 @@ app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body || {}
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' })
     const normUsername = String(username).trim().toLowerCase()
-    const r = await db.query('SELECT id, email, hoten, matkhau FROM section9nhansu.ns01taikhoannguoidung WHERE email=$1 OR manhanvien=$1', [normUsername])
+    const r = await db.query('SELECT id, email, name, matkhau FROM section9nhansu.ns01taikhoannguoidung WHERE email=$1 OR code=$1', [normUsername])
     if (r.rowCount === 0) return res.status(401).json({ error: 'Invalid credentials' })
     const u = r.rows[0]
     //const ok = await bcrypt.compare(String(password), u.password_hash)
@@ -494,7 +494,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
     const token = signToken(u.id)
     res.cookie('token', token, cookieOpts)
-    res.json({ id: u.id, email: u.email, name: u.hoten, code: u.manhanvien })
+    res.json({ id: u.id, email: u.email, name: u.name, code: u.code })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to login' })
@@ -512,10 +512,10 @@ app.get('/api/auth/me', async (req, res) => {
   try {
     const uid = getUserIdFromReq(req)
     if (!uid) return res.status(401).json({ error: 'Unauthorized' })
-    const r = await db.query('SELECT id, email, hoten, manhanvien FROM section9nhansu.ns01taikhoannguoidung WHERE id=$1', [uid])
+    const r = await db.query('SELECT id, email, name, code FROM section9nhansu.ns01taikhoannguoidung WHERE id=$1', [uid])
     if (r.rowCount === 0) return res.status(401).json({ error: 'Unauthorized' })
     const u = r.rows[0]
-    res.json({ id: u.id, email: u.email, name: u.hoten, code: u.manhanvien })
+    res.json({ id: u.id, email: u.email, name: u.name, code: u.code })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Failed to fetch user' })
@@ -1023,9 +1023,9 @@ app.post('/api/trigger', async (req, res) => {
       // Lấy thông tin người dùng từ database
       const userResult = await db.query(`
         SELECT 
-          manhanvien, 
+          code, 
           recordidchucdanh,
-          hoten
+          name
         FROM section9nhansu.ns01taikhoannguoidung
         WHERE id = $1
       `, [userId]).catch(() => ({ rows: [] }));
@@ -1038,10 +1038,10 @@ app.post('/api/trigger', async (req, res) => {
       }
 
       const userInfo = userResult.rows[0];
-      const manhanvien = userInfo.manhanvien;
+      const code = userInfo.code;
       const recordidchucdanh = userInfo.recordidchucdanh;
       
-      console.log('User info:', { manhanvien, recordidchucdanh });
+      console.log('User info:', { code, recordidchucdanh });
 
       // Kiểm tra xem người dùng có quyền với bất kỳ human node nào không
       const hasPermission = humanNodes.some(node => {
@@ -1054,7 +1054,7 @@ app.post('/api/trigger', async (req, res) => {
         
         // Fallback: Kiểm tra quyền dựa trên mã nhân viên (humanPersonsPersonal)
         if (node.data && Array.isArray(node.data.humanPersonsPersonal)) {
-          if (node.data.humanPersonsPersonal.includes(manhanvien)) {
+          if (node.data.humanPersonsPersonal.includes(code)) {
             return true;
           }
         }
@@ -1073,13 +1073,13 @@ app.post('/api/trigger', async (req, res) => {
       if (!hasPermission) {
         return res.status(403).json({ 
           error: 'Unauthorized: User does not have permission for any human node',
-          userInfo: { manhanvien, recordidchucdanh },
+          userInfo: { code, recordidchucdanh },
           humanNodes
         });
       }
       
       // Lấy tên người dùng từ thông tin
-      userName = userInfo.hoten || userName;
+      userName = userInfo.name || userName;
     }
     
     // Lấy thông tin sự kiện từ bảng cr07etriggerevent
@@ -1560,11 +1560,11 @@ app.get('/api/options', async (req, res) => {
     const humanPeopleResult = await db.query(`
       SELECT 
         id,
-        manhanvien as value,
-        hoten as label
+        code as value,
+        name as label
       FROM section9nhansu.ns01taikhoannguoidung
       WHERE status = 'Đang làm việc'
-      ORDER BY hoten
+      ORDER BY name
     `).catch(() => ({ rows: [] }));
     
     // PHẦN 6: LẤY DANH SÁCH PHÒNG BAN
