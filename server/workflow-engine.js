@@ -1447,8 +1447,6 @@ class WorkflowEngine {
         approvalResult: result
       }
     }
-
-    console.log(`Workflow waiting for more approvals for node ${nodeId}`)
       
     return { 
       message: `Approval recorded, waiting for ${approvalMode === 'all' ? 'all approvals' : 'other conditions'}`,
