@@ -167,6 +167,29 @@ class WorkflowEngine {
       [nodeId]
     )
 
+    // Check if the source node is a decision node to handle conditional paths
+    const isDecisionNode = (await client.query(
+      `SELECT COUNT(*) as count
+       FROM section0.cr07Cdiagram_objects
+       WHERE node_id = $1 AND node_type = 'decision'`,
+      [nodeId]
+    )).rows[0].count > 0;
+
+    // If the source node is a decision node, we need to handle conditional paths
+    if (isDecisionNode) {
+      // Get the decision result from the workflow context
+      const decisionContextResult = await this.getWorkflowContext(client, workflowInstanceId, preNodeStateId);
+      const result = decisionContextResult.result;
+      // Filter connections based on the decision result
+      connectionsResult.rows = connectionsResult.rows.filter(conn => {
+        if (result) {
+          return conn.data && conn.data.kind === 'true';
+        } else {
+          return conn.data && conn.data.kind === 'false';
+        }
+      });
+    }
+
     // Get target node information for all connections
     for (const connection of connectionsResult.rows) {
       const targetNodeId = connection.target_node_id
@@ -353,7 +376,6 @@ class WorkflowEngine {
 
     if (nodeResult.rows.length === 0) {
       console.warn(`Node not found for nodeId=${nodeId}`);
-      console.log("==== DEBUG executeDecisionNode END ====");
       return { continue: false };
     }
 
@@ -378,7 +400,6 @@ class WorkflowEngine {
 
     if (!shouldProcess) {
       console.log("Returning early, not processing yet.");
-      console.log("==== DEBUG executeDecisionNode END ====");
       return { continue: false };
     }
 
@@ -423,21 +444,7 @@ class WorkflowEngine {
     }
     await this.updateWorkflowContext(client, workflowInstanceId, null, currentDecision);
 
-    // Find outgoing connections
-    const connectionsResult = await client.query(
-      `SELECT c.id, c.target_node_id, c.data
-      FROM section0.cr07Ddiagram_connections c
-      WHERE c.source_node_id = $1 AND c.data->>'kind' = $2`,
-      [nodeId, conditionMet ? "true" : "false"]
-    );
-
-    // Process outgoing connections
-    let moreNodesToProcess = false;
-    for (const conn of connectionsResult.rows) {
-      console.log(`Processing outgoing connection ${conn.id} → targetNodeId=${conn.target_node_id}`);
-      await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId);
-      moreNodesToProcess = true;
-    }
+    await this.processOutgoingConnections(client, workflowInstanceId, nodeId, nodeStateId);
 
     return { continue: moreNodesToProcess };
   }
@@ -1182,6 +1189,275 @@ class WorkflowEngine {
   }
 
   /**
+   * Process batch human approvals
+   * @param {string} userId - User ID performing the approvals
+   * @param {Array} approvals - Array of approval objects with mappingId, objectId, approved, comment
+   * @returns {Promise<Array>} - Array of results for each approval
+   */
+  async processBatchHumanApproval(userId, approvals) {
+    const client = await this.db.connect()
+    const userIdInt = parseInt(userId, 10)
+    const results = []
+    
+    try {
+      await client.query('BEGIN')
+      
+      console.log(`Processing batch approval for user ${userId} with ${approvals.length} requests`)
+      
+      // Process each approval in sequence to maintain data consistency
+      for (let i = 0; i < approvals.length; i++) {
+        const approval = approvals[i]
+        const mappingIdInt = parseInt(approval.mappingId, 10)
+        const objectIdInt = parseInt(approval.objectId, 10)
+        
+        try {
+          console.log(`Processing approval ${i + 1}/${approvals.length}: mappingId=${mappingIdInt}, objectId=${objectIdInt}, approved=${approval.approved}`)
+          
+          // Call the single approval method with individual transaction handling disabled
+          const result = await this.processSingleHumanApprovalInTransaction(
+            client,
+            mappingIdInt,
+            objectIdInt,
+            userIdInt,
+            approval.approved,
+            approval.comment || ''
+          )
+          
+          results.push({
+            mappingId: mappingIdInt,
+            objectId: objectIdInt,
+            success: true,
+            approved: approval.approved,
+            comment: approval.comment || '',
+            message: result.message || 'Approval processed successfully'
+          })
+          
+          console.log(`✅ Approval ${i + 1} processed successfully`)
+          
+        } catch (error) {
+          console.error(`❌ Error processing approval ${i + 1}:`, error)
+          
+          results.push({
+            mappingId: mappingIdInt,
+            objectId: objectIdInt,
+            success: false,
+            approved: approval.approved,
+            comment: approval.comment || '',
+            error: error.message || 'Unknown error occurred'
+          })
+        }
+      }
+      
+      await client.query('COMMIT')
+      
+      const successCount = results.filter(r => r.success).length
+      const failCount = results.filter(r => !r.success).length
+      
+      console.log(`Batch approval completed: ${successCount} successful, ${failCount} failed`)
+      
+      return results
+      
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('Error in batch approval transaction:', error)
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  /**
+   * Process a single human approval within an existing transaction
+   * @param {object} client - Database client with active transaction
+   * @param {number} mappingId - Mapping ID
+   * @param {number} objectId - Object ID
+   * @param {number} userId - User ID performing the approval
+   * @param {boolean} approved - Whether approved or rejected
+   * @param {string} comment - Optional comment
+   * @returns {Promise<object>} - Result object
+   */
+  async processSingleHumanApprovalInTransaction(client, mappingId, objectId, userId, approved, comment) {
+    const mappingIdInt = parseInt(mappingId, 10);
+    const objectIdInt = parseInt(objectId, 10);
+    const userIdInt = parseInt(userId, 10);
+    
+    // Find active workflow instances for this mapping and object
+    const workflowInstanceResult = await client.query(
+      `SELECT wi.id 
+       FROM section0.cr08workflow_instances wi
+       WHERE (wi.context->>'startMappingId')::int = $1
+       AND (wi.context->>'startObjectId')::int = $2 
+       AND status IN ('active', 'waiting')
+       ORDER BY started_at DESC
+       LIMIT 1`,
+      [mappingIdInt, objectIdInt]
+    )
+
+    if (workflowInstanceResult.rows.length === 0) {
+      throw new Error(`No active workflow found for mappingId=${mappingId}, objectId=${objectId}`)
+    }
+
+    const workflowInstanceId = workflowInstanceResult.rows[0].id
+
+    // Find approval records for this user and workflow
+    // Get the active node state for this workflow instance that has pending approvals for this user
+    const nodeStateResult = await client.query(
+      `SELECT ns.id, ns.node_id, ns.inputs_required
+        FROM section0.cr08anode_states ns
+        JOIN section0.cr08cnode_approvals na ON na.node_state_id = ns.id
+        WHERE ns.workflow_instance_id = $1
+          AND ns.status = 'waiting'
+          AND na.user_id = $2
+          AND na.status = 'to approve'
+        LIMIT 1`,
+      [workflowInstanceId, userIdInt]
+    )
+    if (nodeStateResult.rows.length === 0) {
+      throw new Error('No pending approval found for this user in the active workflow instance')
+    }
+    const nodeState = nodeStateResult.rows[0]
+
+    // Update the approval record
+    const updateResult = await client.query(
+      `UPDATE section0.cr08cnode_approvals
+       SET status = $1, comment = $2, updated_at = now()
+       WHERE node_state_id = $3 AND user_id = $4
+       RETURNING id`,
+      [approved ? 'approved' : 'rejected', comment || null, nodeState.id, userIdInt]
+    )
+      
+    if (updateResult.rows.length === 0) {
+      throw new Error('Approval record not found')
+    }
+
+    console.log(`Updated approval ${updateResult.rows[0].id} with status: ${approved ? 'approved' : 'rejected'}`)
+
+    // Get the node details to check approval mode and connected human nodes
+    const nodeInfoResult = await client.query(
+      `SELECT 
+        o.data->>'approvalMode' AS approval_mode,
+        COUNT(*) FILTER (WHERE a.status = 'approved') AS approved_count,
+        COUNT(*) FILTER (WHERE a.status = 'rejected') AS rejected_count,
+        COUNT(*) AS total_count
+       FROM section0.cr07Cdiagram_objects o
+       JOIN section0.cr08cnode_approvals a ON a.node_state_id = $1
+       WHERE o.node_id = $2
+       GROUP BY o.data`,
+      [nodeState.id, nodeState.node_id]
+    );
+
+    const { approval_mode, approved_count, rejected_count, total_count, connected_human_nodes } = nodeInfoResult.rows[0];
+    const approvalMode = approval_mode || 'any';
+
+    let nodeCompleted = false;
+    let approvalResult = null;
+
+    // Determine if the node is complete based on approval mode
+    if (approvalMode === 'all') {
+      // All approvals required
+      if (rejected_count > 0) {
+        // Any rejection means the node fails
+        nodeCompleted = true;
+        approvalResult = false;
+      } else if (approved_count === total_count) {
+        // All approved
+        nodeCompleted = true;
+        approvalResult = true;
+      } else {
+        console.log("Condition not met yet → Node still waiting");
+      }
+    } else {
+      // Any approval is sufficient
+      if (approved_count > 0) {
+        // Any approval means the node passes
+        nodeCompleted = true;
+        approvalResult = true;
+      } else if (rejected_count === total_count) {
+        // All rejected
+        nodeCompleted = true;
+        approvalResult = false;
+      } else {
+        console.log("Condition not met yet → Node still waiting");
+      }
+    }
+
+    // Lấy context hiện tại của node
+    const nodeContext = await this.getWorkflowContext(client, workflowInstanceId, nodeState.id);
+
+    // Lấy logs cũ (nếu có)
+    const existingLogs = nodeContext.logs || [];
+    const existingDetails = nodeContext.details || '';
+
+    // Tạo log mới
+    const newLogEntry = {
+      result: approved ? 'approved' : 'rejected',
+      approverId: userIdInt,
+      comment: comment || null,
+      processedAt: new Date().toISOString()
+    };
+
+    var result = approvalResult ? 'approved' : 'rejected';
+
+    var approverName = await this.getUserNameById(client, userIdInt);
+    var exDetails = existingDetails ? existingDetails + '\n' : '';
+    var actionText = approved ? 'phê duyệt' : 'từ chối';
+    var detailsPrefix = `${approverName || 'Người dùng ' + userIdInt} đã ${actionText}`;
+    var details = `${exDetails}${detailsPrefix} yêu cầu phê duyệt của bạn.`;
+    // Build approvalMetadata
+    const approvalMetadata = {
+      result: result,
+      approved_count,
+      rejected_count,
+      total_count,
+      approvalMode,
+      details,
+      logs: [...existingLogs, newLogEntry] // append thêm
+    };
+
+    // Update context (hàm updateWorkflowContext không cần đổi)
+    await this.updateWorkflowContext(client, workflowInstanceId, nodeState.id, approvalMetadata);
+    
+    if (nodeCompleted) {
+      // Update node state (chỉ cập nhật status)
+      await client.query(
+        `UPDATE section0.cr08anode_states
+         SET status = 'completed'
+         WHERE id = $1`,
+        [nodeState.id]
+      )
+      // Cancel any remaining pending approvals for this node
+      await client.query(
+        `UPDATE section0.cr08cnode_approvals
+         SET status = 'canceled', updated_at = now()
+         WHERE node_state_id = $1 AND status = 'to approve'`,
+        [nodeState.id]
+      )
+      
+      // Forward the enriched approval data to downstream nodes
+      await this.processOutgoingConnections(
+        client, 
+        workflowInstanceId, 
+        nodeState.node_id, 
+        nodeState.id
+      )
+
+      return { 
+        message: `Approval processed and workflow continued`,
+        workflowContinued: true,
+        approvalResult: result
+      }
+    }
+
+    console.log(`Workflow waiting for more approvals for node ${nodeId}`)
+      
+    return { 
+      message: `Approval recorded, waiting for ${approvalMode === 'all' ? 'all approvals' : 'other conditions'}`,
+      workflowContinued: false,
+      approvalResult: result
+    }
+  }
+
+  /**
    * Process a human approval
    * @param {string} nodeStateId - Node state ID
    * @param {string} userId - User ID performing the approval
@@ -1199,162 +1475,18 @@ class WorkflowEngine {
     try {
       await client.query('BEGIN')
 
-      const workflowInstanceResult = await client.query(
-        `SELECT wi.id AS workflow_instance_id
-          FROM section0.cr08workflow_instances wi
-          WHERE (wi.context->>'startMappingId')::int = $1
-            AND (wi.context->>'startObjectId')::int = $2
-            AND (wi.status = 'active' OR wi.status = 'waiting')
-          ORDER BY wi.started_at DESC
-          LIMIT 1`,
-        [mappingIdInt, objectIdInt]
-      );
-      if (workflowInstanceResult.rows.length === 0) {
-        throw new Error('Active workflow instance not found for the given mapping and object')
-      }
-      const workflowInstanceId = workflowInstanceResult.rows[0].workflow_instance_id
-      // Get the active node state for this workflow instance that has pending approvals for this user
-      const nodeStateResult = await client.query(
-        `SELECT ns.id, ns.node_id, ns.inputs_required
-          FROM section0.cr08anode_states ns
-          JOIN section0.cr08cnode_approvals na ON na.node_state_id = ns.id
-          WHERE ns.workflow_instance_id = $1
-            AND ns.status = 'waiting'
-            AND na.user_id = $2
-            AND na.status = 'to approve'
-          LIMIT 1`,
-        [workflowInstanceId, userIdInt]
+      // Use the transaction-aware method
+      const result = await this.processSingleHumanApprovalInTransaction(
+        client,
+        mappingIdInt,
+        objectIdInt,
+        userIdInt,
+        approved,
+        comment
       )
-      if (nodeStateResult.rows.length === 0) {
-        throw new Error('No pending approval found for this user in the active workflow instance')
-      }
-      const nodeState = nodeStateResult.rows[0]
-      
-      // Update the approval record
-      const updateResult = await client.query(
-        `UPDATE section0.cr08cnode_approvals
-         SET status = $1, comment = $2, updated_at = now()
-         WHERE node_state_id = $3 AND user_id = $4
-         RETURNING id`,
-        [approved ? 'approved' : 'rejected', comment || null, nodeState.id, userIdInt]
-      )
-      
-      if (updateResult.rows.length === 0) {
-        throw new Error('Approval record not found')
-      }
-      
-      // Get the node details to check approval mode and connected human nodes
-      const nodeInfoResult = await client.query(
-        `SELECT 
-          o.data->>'approvalMode' AS approval_mode,
-          COUNT(*) FILTER (WHERE a.status = 'approved') AS approved_count,
-          COUNT(*) FILTER (WHERE a.status = 'rejected') AS rejected_count,
-          COUNT(*) AS total_count
-         FROM section0.cr07Cdiagram_objects o
-         JOIN section0.cr08cnode_approvals a ON a.node_state_id = $1
-         WHERE o.node_id = $2
-         GROUP BY o.data`,
-        [nodeState.id, nodeState.node_id]
-      );
 
-      const { approval_mode, approved_count, rejected_count, total_count, connected_human_nodes } = nodeInfoResult.rows[0];
-      const approvalMode = approval_mode || 'any';
-
-      let nodeCompleted = false;
-      let approvalResult = null;
-
-      // Determine if the node is complete based on approval mode
-      if (approvalMode === 'all') {
-        // All approvals required
-        if (rejected_count > 0) {
-          // Any rejection means the node fails
-          nodeCompleted = true;
-          approvalResult = false;
-        } else if (approved_count === total_count) {
-          // All approved
-          nodeCompleted = true;
-          approvalResult = true;
-        } else {
-          console.log("Condition not met yet → Node still waiting");
-        }
-      } else {
-        // Any approval is sufficient
-        if (approved_count > 0) {
-          // Any approval means the node passes
-          nodeCompleted = true;
-          approvalResult = true;
-        } else if (rejected_count === total_count) {
-          // All rejected
-          nodeCompleted = true;
-          approvalResult = false;
-        } else {
-          console.log("Condition not met yet → Node still waiting");
-        }
-      }
-
-      // Lấy context hiện tại của node
-      const nodeContext = await this.getWorkflowContext(client, workflowInstanceId, nodeState.id);
-
-      // Lấy logs cũ (nếu có)
-      const existingLogs = nodeContext.logs || [];
-      const existingDetails = nodeContext.details || '';
-
-      // Tạo log mới
-      const newLogEntry = {
-        result: approved ? 'approved' : 'rejected',
-        approverId: userIdInt,
-        comment: comment || null,
-        processedAt: new Date().toISOString()
-      };
-
-      var result = approvalResult ? 'approved' : 'rejected';
-
-      var approverName = await this.getUserNameById(client, userIdInt);
-      var exDetails = existingDetails ? existingDetails + '\n' : '';
-      var actionText = approved ? 'phê duyệt' : 'từ chối';
-      var detailsPrefix = `${approverName || 'Người dùng ' + userIdInt} đã ${actionText}`;
-      var details = `${exDetails}${detailsPrefix} yêu cầu phê duyệt của bạn.`;
-      // Build approvalMetadata
-      const approvalMetadata = {
-        result: result,
-        approved_count,
-        rejected_count,
-        total_count,
-        approvalMode,
-        details,
-        logs: [...existingLogs, newLogEntry] // append thêm
-      };
-
-      // Update context (hàm updateWorkflowContext không cần đổi)
-      await this.updateWorkflowContext(client, workflowInstanceId, nodeState.id, approvalMetadata);
-      
-      if (nodeCompleted) {
-        // Update node state (chỉ cập nhật status)
-        await client.query(
-          `UPDATE section0.cr08anode_states
-           SET status = 'completed'
-           WHERE id = $1`,
-          [nodeState.id]
-        )
-
-        // Cancel any remaining pending approvals for this node
-        await client.query(
-          `UPDATE section0.cr08cnode_approvals
-           SET status = 'canceled', updated_at = now()
-           WHERE node_state_id = $1 AND status = 'to approve'`,
-          [nodeState.id]
-        )
-        
-        // Forward the enriched approval data to downstream nodes
-        await this.processOutgoingConnections(
-          client, 
-          workflowInstanceId, 
-          nodeState.node_id, 
-          nodeState.id
-        )
-      }
-      
       await client.query('COMMIT')
+      console.log(`Single approval processed successfully: ${result.message}`)
       return true
     } catch (error) {
       await client.query('ROLLBACK')

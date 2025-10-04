@@ -97,6 +97,75 @@ module.exports = function(app, db) {
       res.status(500).json({ error: error.message || 'Internal server error' })
     }
   })
+
+  /**
+   * Submit batch approvals/rejections for multiple requests
+   * Request body format:
+   * {
+   *   "userId": "123",
+   *   "approvals": [
+   *     {
+   *       "mappingId": 1,
+   *       "objectId": 456,
+   *       "approved": true,
+   *       "comment": "Approved with conditions"
+   *     },
+   *     {
+   *       "mappingId": 2,
+   *       "objectId": 789,
+   *       "approved": false,
+   *       "comment": "Missing required documents"
+   *     }
+   *   ]
+   * }
+   */
+  app.post('/api/workflow/approval/batch', async (req, res) => {
+    try {
+      const { userId, approvals } = req.body
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'Authentication required' })
+      }
+      
+      if (!approvals || !Array.isArray(approvals) || approvals.length === 0) {
+        return res.status(400).json({ error: 'Approvals array is required and must not be empty' })
+      }
+      
+      // Validate each approval request
+      for (let i = 0; i < approvals.length; i++) {
+        const approval = approvals[i]
+        if (!approval.mappingId || !approval.objectId) {
+          return res.status(400).json({ 
+            error: `Invalid approval at index ${i}: mappingId and objectId are required` 
+          })
+        }
+        if (typeof approval.approved !== 'boolean') {
+          return res.status(400).json({ 
+            error: `Invalid approval at index ${i}: approved must be a boolean` 
+          })
+        }
+      }
+      
+      // Process batch approvals
+      const results = await workflowEngine.processBatchHumanApproval(
+        userId,
+        approvals
+      )
+      
+      res.json({ 
+        success: true, 
+        results: results,
+        summary: {
+          total: results.length,
+          successful: results.filter(r => r.success).length,
+          failed: results.filter(r => !r.success).length
+        }
+      })
+    } catch (error) {
+      console.error('Error processing batch approval:', error)
+      res.status(500).json({ error: error.message || 'Internal server error' })
+    }
+  })
   
   /**
    * Get workflow instances for a diagram
